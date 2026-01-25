@@ -1,0 +1,7 @@
+Module
+  name: CTOmodule
+  description: CTOmodule starter module (Lua + OTUI)
+  author: you
+  version: 0.1.0
+  scripts: [ init.lua ]
+  enabled: true

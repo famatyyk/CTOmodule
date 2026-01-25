@@ -1,0 +1,37 @@
+MainWindow
+  id: ctoWindow
+  text: CTOmodule
+  size: 360 220
+  visible: false
+
+  Label
+    id: title
+    text: CTOmodule starter UI
+    anchors.top: parent.top
+    anchors.left: parent.left
+    margin-top: 12
+    margin-left: 12
+
+  CheckBox
+    id: enabledCheck
+    text: Enabled
+    anchors.top: title.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    margin-left: 12
+
+  Button
+    id: btnPrint
+    text: Print test line
+    anchors.top: enabledCheck.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    margin-left: 12
+
+  Label
+    id: hint
+    text: Hotkey: Ctrl+Shift+C
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    margin-left: 12
+    margin-bottom: 12
