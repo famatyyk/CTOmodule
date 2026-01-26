@@ -1,12 +1,12 @@
 MainWindow
   id: ctoWindow
   text: CTOmodule
-  size: 460 300
+  size: 520 330
   visible: false
 
   Label
     id: title
-    text: CTOmodule MVP v0.2
+    text: CTOmodule MVP v0.3 (Tick loop)
     anchors.top: parent.top
     anchors.left: parent.left
     margin-top: 10
@@ -20,45 +20,98 @@ MainWindow
     margin-top: 8
     margin-left: 12
 
+  Label
+    id: statusLabel
+    text: STOPPED | interval=500ms | tick=0
+    anchors.top: enabledCheck.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    margin-left: 12
+
+  Label
+    id: intervalLabel
+    text: Interval (ms):
+    anchors.top: statusLabel.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    margin-left: 12
+
+  TextEdit
+    id: intervalEdit
+    text: 500
+    anchors.top: statusLabel.bottom
+    anchors.left: intervalLabel.right
+    margin-top: 6
+    margin-left: 10
+    width: 90
+    height: 20
+
+  Button
+    id: btnStart
+    text: Start
+    anchors.top: statusLabel.bottom
+    anchors.left: intervalEdit.right
+    margin-top: 6
+    margin-left: 10
+    width: 64
+
+  Button
+    id: btnStop
+    text: Stop
+    anchors.top: statusLabel.bottom
+    anchors.left: btnStart.right
+    margin-top: 6
+    margin-left: 8
+    width: 64
+
+  Button
+    id: btnToggleRun
+    text: Toggle
+    anchors.top: statusLabel.bottom
+    anchors.left: btnStop.right
+    margin-top: 6
+    margin-left: 8
+    width: 70
+
   Button
     id: btnPrint
     text: Print
-    anchors.top: title.bottom
-    anchors.left: enabledCheck.right
-    margin-top: 6
+    anchors.top: intervalLabel.bottom
+    anchors.left: parent.left
+    margin-top: 10
     margin-left: 12
     width: 64
 
   Button
     id: btnReload
     text: Reload
-    anchors.top: title.bottom
+    anchors.top: intervalLabel.bottom
     anchors.left: btnPrint.right
-    margin-top: 6
+    margin-top: 10
     margin-left: 8
     width: 64
 
   Button
     id: btnHardReload
     text: Hard
-    anchors.top: title.bottom
+    anchors.top: intervalLabel.bottom
     anchors.left: btnReload.right
-    margin-top: 6
+    margin-top: 10
     margin-left: 8
     width: 56
 
   Button
     id: btnClear
     text: Clear log
-    anchors.top: title.bottom
+    anchors.top: intervalLabel.bottom
     anchors.left: btnHardReload.right
-    margin-top: 6
+    margin-top: 10
     margin-left: 8
     width: 84
 
   TextEdit
     id: logBox
-    anchors.top: enabledCheck.bottom
+    anchors.top: btnPrint.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
