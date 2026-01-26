@@ -1,6 +1,5 @@
 -- modules/CTOmodule/init.lua
--- NOTE: In OTClient, init.lua runs with the module directory as the base path.
--- So use relative paths like 'module.lua' and 'ui/main.otui'.
+-- Module-relative paths only (OTClient executes init.lua with module dir as base).
 
 dofile('module.lua')
 

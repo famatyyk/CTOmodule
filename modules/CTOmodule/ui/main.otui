@@ -1,15 +1,15 @@
 MainWindow
   id: ctoWindow
   text: CTOmodule
-  size: 360 220
+  size: 420 300
   visible: false
 
   Label
     id: title
-    text: CTOmodule starter UI
+    text: CTOmodule MVP v0.2
     anchors.top: parent.top
     anchors.left: parent.left
-    margin-top: 12
+    margin-top: 10
     margin-left: 12
 
   CheckBox
@@ -17,21 +17,44 @@ MainWindow
     text: Enabled
     anchors.top: title.bottom
     anchors.left: parent.left
-    margin-top: 12
+    margin-top: 8
     margin-left: 12
 
   Button
     id: btnPrint
-    text: Print test line
+    text: Print
+    anchors.top: title.bottom
+    anchors.left: enabledCheck.right
+    margin-top: 6
+    margin-left: 12
+    width: 72
+
+  Button
+    id: btnReload
+    text: Reload
+    anchors.top: title.bottom
+    anchors.left: btnPrint.right
+    margin-top: 6
+    margin-left: 8
+    width: 72
+
+  Button
+    id: btnClear
+    text: Clear log
+    anchors.top: title.bottom
+    anchors.left: btnReload.right
+    margin-top: 6
+    margin-left: 8
+    width: 84
+
+  TextEdit
+    id: logBox
     anchors.top: enabledCheck.bottom
     anchors.left: parent.left
-    margin-top: 12
-    margin-left: 12
-
-  Label
-    id: hint
-    text: Hotkey: Ctrl+Shift+C
+    anchors.right: parent.right
     anchors.bottom: parent.bottom
-    anchors.left: parent.left
+    margin-top: 10
     margin-left: 12
+    margin-right: 12
     margin-bottom: 12
+    text: ""

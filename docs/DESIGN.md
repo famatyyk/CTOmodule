@@ -1,4 +1,6 @@
-# DESIGN
-- Minimal module skeleton: init.lua + module.lua + UI (OTUI)
-- No Polish chars in UI/text/logs
-- UI toggled by hotkey Ctrl+Shift+C
+# DESIGN notes (v0.2)
+- Always use module-relative paths:
+  - dofile('module.lua')
+  - g_ui.loadUI('ui/main.otui', parent)
+- Avoid duplicated hotkey binds (unbind before bind where supported)
+- Keep log buffer across reloads; UI is reloaded safely
