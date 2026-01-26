@@ -15,33 +15,71 @@ if type(safe) ~= 'function' then
   end
 end
 
+-- Global fallback for getRootWidgetSafe (lexical ordering / upvalue resolution can differ across blocks).
+if type(getRootWidgetSafe) ~= 'function' then
+  function getRootWidgetSafe()
+    if g_ui then
+      local fn = g_ui.getRootWidget
+      if type(fn) == 'function' then
+        local ok, w = pcall(fn, g_ui)
+        if ok and w then return w end
+        ok, w = pcall(fn)
+        if ok and w then return w end
+      end
+    end
+    return rootWidget
+  end
+end
+
 -- Global fallbacks for settings helpers in case some blocks resolve them as globals.
+-- Also supports both function-call and method-call styles (dot vs colon).
 if type(settingsSet) ~= 'function' then
   function settingsSet(key, value)
     if not g_settings then return end
-    if type(g_settings.set) == 'function' then
-      pcall(g_settings.set, key, value)
-    elseif type(g_settings.setValue) == 'function' then
-      pcall(g_settings.setValue, key, value)
+
+    local function trySet(fnName)
+      local fn = g_settings[fnName]
+      if type(fn) ~= 'function' then return false end
+      -- try dot-call
+      local ok = pcall(fn, key, value)
+      if ok then return true end
+      -- try colon-call
+      ok = pcall(function() return g_settings[fnName](g_settings, key, value) end)
+      return ok and true or false
     end
+
+    if trySet('set') then return end
+    if trySet('setValue') then return end
+    if trySet('setString') then return end
+    if trySet('setNumber') then return end
+    if trySet('setBoolean') then return end
   end
 end
 
 if type(settingsGetBool) ~= 'function' then
   function settingsGetBool(key, default)
     if not g_settings then return default end
-    if type(g_settings.getBoolean) == 'function' then
-      local ok, v = pcall(g_settings.getBoolean, key)
-      if ok and type(v) == 'boolean' then return v end
+
+    local function tryGet(fnName)
+      local fn = g_settings[fnName]
+      if type(fn) ~= 'function' then return nil end
+      local ok, v = pcall(fn, key)
+      if ok then return v end
+      ok, v = pcall(function() return g_settings[fnName](g_settings, key) end)
+      if ok then return v end
+      return nil
     end
-    if type(g_settings.get) == 'function' then
-      local ok, v = pcall(g_settings.get, key)
-      if ok then
-        if type(v) == 'boolean' then return v end
-        if v == 'true' or v == '1' or v == 1 then return true end
-        if v == 'false' or v == '0' or v == 0 then return false end
-      end
+
+    local v = tryGet('getBoolean')
+    if type(v) == 'boolean' then return v end
+
+    v = tryGet('get')
+    if v ~= nil then
+      if type(v) == 'boolean' then return v end
+      if v == 'true' or v == '1' or v == 1 then return true end
+      if v == 'false' or v == '0' or v == 0 then return false end
     end
+
     return default
   end
 end
@@ -49,21 +87,55 @@ end
 if type(settingsGetNumber) ~= 'function' then
   function settingsGetNumber(key, default)
     if not g_settings then return default end
-    if type(g_settings.getNumber) == 'function' then
-      local ok, v = pcall(g_settings.getNumber, key)
-      if ok and type(v) == 'number' then return v end
+
+    local function tryGet(fnName)
+      local fn = g_settings[fnName]
+      if type(fn) ~= 'function' then return nil end
+      local ok, v = pcall(fn, key)
+      if ok then return v end
+      ok, v = pcall(function() return g_settings[fnName](g_settings, key) end)
+      if ok then return v end
+      return nil
     end
-    if type(g_settings.get) == 'function' then
-      local ok, v = pcall(g_settings.get, key)
-      if ok then
-        local n = tonumber(v)
-        if n ~= nil then return n end
-      end
+
+    local v = tryGet('getNumber')
+    if type(v) == 'number' then return v end
+
+    v = tryGet('get')
+    if v ~= nil then
+      local n = tonumber(v)
+      if n ~= nil then return n end
     end
+
     return default
   end
 end
 
+if type(settingsGetString) ~= 'function' then
+  function settingsGetString(key, default)
+    if not g_settings then return default end
+
+    local function tryGet(fnName)
+      local fn = g_settings[fnName]
+      if type(fn) ~= 'function' then return nil end
+      local ok, v = pcall(fn, key)
+      if ok then return v end
+      ok, v = pcall(function() return g_settings[fnName](g_settings, key) end)
+      if ok then return v end
+      return nil
+    end
+
+    local v = tryGet('getString')
+    if v ~= nil then return tostring(v) end
+
+    v = tryGet('get')
+    if v ~= nil then return tostring(v) end
+
+    return default
+  end
+end
+
+    
 local HOTKEY = 'Ctrl+Shift+C'
 local TICK_HOTKEY = 'Ctrl+Shift+T'
 local RESET_HOTKEY = 'Ctrl+Shift+O'
@@ -148,11 +220,12 @@ local function unbindActionHotkeyInternal(key, silent, dontSave)
   local rec = CTOmodule._actionHotkeys.map[key]
   if not rec then return false end
 
+  local rw = rec.widget or getRootWidgetSafe()
   if g_keyboard then
     if type(g_keyboard.unbindKeyDown) == 'function' then
-      safe(g_keyboard.unbindKeyDown, key, rec.fn, rootWidget)
+      safe(g_keyboard.unbindKeyDown, key, rec.fn, rw)
     elseif type(g_keyboard.unbindKeyPress) == 'function' then
-      safe(g_keyboard.unbindKeyPress, key, rec.fn, rootWidget)
+      safe(g_keyboard.unbindKeyPress, key, rec.fn, rw)
     end
   end
 
@@ -183,13 +256,14 @@ local function bindActionHotkeyInternal(key, actionName, silent, dontSave)
     CTOmodule.actions.run(actionName)
   end
 
-  CTOmodule._actionHotkeys.map[key] = { action = actionName, fn = fn }
+  local rw = getRootWidgetSafe()
+  CTOmodule._actionHotkeys.map[key] = { action = actionName, fn = fn, widget = rw }
 
   if g_keyboard then
     if type(g_keyboard.bindKeyDown) == 'function' then
-      safe(g_keyboard.bindKeyDown, key, fn, rootWidget)
+      safe(g_keyboard.bindKeyDown, key, fn, rw)
     elseif type(g_keyboard.bindKeyPress) == 'function' then
-      safe(g_keyboard.bindKeyPress, key, fn, rootWidget)
+      safe(g_keyboard.bindKeyPress, key, fn, rw)
     end
   end
 
@@ -204,12 +278,7 @@ end
 
 local function loadActionHotkeys()
   -- expects rootWidget and g_keyboard to be ready
-  local raw = ''
-  if g_settings and type(g_settings.get) == 'function' then
-    local ok, v = safe(g_settings.get, MODULE_NAME .. '.actionHotkeys')
-    if ok and v ~= nil then raw = tostring(v) end
-  end
-
+  local raw = settingsGetString(MODULE_NAME .. '.actionHotkeys', '')
   for line in raw:gmatch('[^\r\n]+') do
     local k, a = line:match('^([^=]+)=(.+)$')
     if k and a then
@@ -240,14 +309,17 @@ function CTOmodule.listActionHotkeys()
   return lines
 end
 
-function CTOmodule.unbindAllActionHotkeys()
+function CTOmodule.unbindAllActionHotkeys(dontSave)
   local keys = {}
   for k, _ in pairs(CTOmodule._actionHotkeys.map) do keys[#keys + 1] = k end
   table.sort(keys)
   for i = 1, #keys do
+    -- runtime-only unbind; do NOT overwrite persisted settings on reload
     unbindActionHotkeyInternal(keys[i], true, true)
   end
-  saveActionHotkeys()
+  if not dontSave then
+    saveActionHotkeys()
+  end
 end
 
 
@@ -465,6 +537,18 @@ local function normalizeKeyCombo(key)
   key = tostring(key or '')
   key = key:gsub('%s+', '')
   return key
+end
+
+local function getRootWidgetSafe()
+  if g_ui then
+    if type(g_ui.getRootWidget) == 'function' then
+      local ok, w = pcall(g_ui.getRootWidget, g_ui)
+      if ok and w then return w end
+      ok, w = pcall(g_ui.getRootWidget)
+      if ok and w then return w end
+    end
+  end
+  return rootWidget
 end
 
 local function logRender()
@@ -740,6 +824,10 @@ local function registerDefaultActions()
     local running = t and t.running and true or false
     local intervalMs = t and t.intervalMs or nil
     CTOmodule.log('state: running=' .. tostring(running) .. ' intervalMs=' .. tostring(intervalMs) .. ' tickCount=' .. tostring(t and t.tickCount or 0))
+  end, { override = true })
+  CTOmodule.actions.register('print_hotkey_store', function()
+    local raw = settingsGetString(MODULE_NAME .. '.actionHotkeys', '')
+    CTOmodule.log('persisted actionHotkeys=' .. (raw ~= '' and raw or '(empty)'))
   end, { override = true })
 end
 
@@ -1055,6 +1143,7 @@ updateStatus()
 end
 
 function CTOmodule.init()
+  rootWidget = getRootWidgetSafe()
   -- Idempotent init: if already initialized, clean up first
   if window then
     CTOmodule.terminate()
@@ -1086,6 +1175,9 @@ end
   window:hide()
 
   wireUi()
+  loadActionHotkeys()
+  hotkeysUiRefresh()
+  local _hk2 = CTOmodule.listActionHotkeys(); CTOmodule.log('action hotkeys loaded: ' .. (#_hk2 > 0 and table.concat(_hk2, ', ') or '(none)'))
 
   -- hotkey (avoid duplicates)
   unbindHotkey()
@@ -1098,7 +1190,6 @@ end
   end
 CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', resetWin: ' .. RESET_HOTKEY .. ')')
   local _alist = CTOmodule.actions.list(); CTOmodule.log('actions ready: ' .. (#_alist > 0 and table.concat(_alist, ', ') or '(none)'))
-  local _hk = CTOmodule.listActionHotkeys(); CTOmodule.log('action hotkeys: ' .. (#_hk > 0 and table.concat(_hk, ', ') or '(none)'))
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()
@@ -1112,7 +1203,7 @@ end
 function CTOmodule.terminate()
   unbindHotkey()
   stopTick()
-  CTOmodule.unbindAllActionHotkeys()
+  CTOmodule.unbindAllActionHotkeys(true)
 
   saveWindowState()
 
