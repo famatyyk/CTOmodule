@@ -59,8 +59,13 @@ function CTOmodule.init()
     return
   end
 
-  -- Load UI
-  window = g_ui.loadUI('modules/CTOmodule/ui/main.otui', rootWidget)
+  -- IMPORTANT: load UI using a path relative to the module directory
+  window = g_ui.loadUI('ui/main.otui', rootWidget)
+  if not window then
+    print('[' .. MODULE_NAME .. '] ERROR: failed to load UI: ui/main.otui')
+    return
+  end
+
   window:hide()
 
   -- Wire UI events
@@ -84,7 +89,6 @@ function CTOmodule.init()
 
   -- Hotkey toggle
   if g_keyboard and type(g_keyboard.bindKeyDown) == 'function' then
-    -- binding to root widget keeps it global in game UI
     pcall(g_keyboard.bindKeyDown, 'Ctrl+Shift+C', function() CTOmodule.toggle() end, rootWidget)
   end
 

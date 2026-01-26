@@ -1,5 +1,17 @@
 -- modules/CTOmodule/init.lua
-dofile('modules/CTOmodule/module.lua')
+-- NOTE: In OTClient, init.lua runs with the module directory as the base path.
+-- So use relative paths like 'module.lua' and 'ui/main.otui'.
 
--- OTClient calls init/terminate via module lifecycle.
-CTOmodule.init()
+dofile('module.lua')
+
+function init()
+  if CTOmodule and CTOmodule.init then
+    CTOmodule.init()
+  end
+end
+
+function terminate()
+  if CTOmodule and CTOmodule.terminate then
+    CTOmodule.terminate()
+  end
+end
