@@ -1,7 +1,7 @@
 MainWindow
   id: ctoWindow
   text: CTOmodule
-  size: 620 460
+  size: 620 590
   visible: false
 
   Label
@@ -418,50 +418,178 @@ MainWindow
     margin-left: 6
 
 
-    Button
-      id: btnPrint
-      text: Print
-      anchors.top: btnTaskSetPriority.bottom
-      anchors.left: parent.left
-      margin-top: 10
-      margin-left: 12
-      width: 64
+  Label
+    id: taskEditorTitle
+    text: Task Editor (v0.9)
+    color: #dddddd
+    anchors.left: parent.left
+    anchors.top: btnTaskSetPriority.bottom
+    margin-left: 10
+    margin-top: 10
 
-    Button
-      id: btnReload
-      text: Reload
-      anchors.top: btnTaskSetPriority.bottom
-      anchors.left: btnPrint.right
-      margin-top: 10
-      margin-left: 8
-      width: 64
+  TextEdit
+    id: taskEditorListBox
+    text: (no tasks)
+    readOnly: true
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.top: taskEditorTitle.bottom
+    margin-left: 10
+    margin-right: 10
+    margin-top: 4
+    height: 90
 
-    Button
-      id: btnHardReload
-      text: Hard
-      anchors.top: btnTaskSetPriority.bottom
-      anchors.left: btnReload.right
-      margin-top: 10
-      margin-left: 8
-      width: 56
+  Label
+    id: taskEditorNameLabel
+    text: Name
+    anchors.left: parent.left
+    anchors.top: taskEditorListBox.bottom
+    margin-left: 10
+    margin-top: 6
 
-    Button
-      id: btnClear
-      text: Clear log
-      anchors.top: btnTaskSetPriority.bottom
-      anchors.left: btnHardReload.right
-      margin-top: 10
-      margin-left: 8
-      width: 84
+  TextEdit
+    id: taskEditorNameEdit
+    anchors.left: taskEditorNameLabel.right
+    anchors.top: taskEditorNameLabel.top
+    margin-left: 6
+    height: 20
+    width: 120
 
-    TextEdit
-      id: logBox
-      anchors.top: btnPrint.bottom
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      margin-top: 10
-      margin-left: 12
-      margin-right: 12
-      margin-bottom: 12
-      text: ""
+  Label
+    id: taskEditorActionLabel
+    text: Action
+    anchors.left: taskEditorNameEdit.right
+    anchors.top: taskEditorNameLabel.top
+    margin-left: 12
+
+  TextEdit
+    id: taskEditorActionEdit
+    anchors.left: taskEditorActionLabel.right
+    anchors.top: taskEditorNameLabel.top
+    margin-left: 6
+    height: 20
+    width: 160
+
+  Label
+    id: taskEditorIntervalLabel
+    text: Interval(ms)
+    anchors.left: parent.left
+    anchors.top: taskEditorNameLabel.bottom
+    margin-left: 10
+    margin-top: 6
+
+  TextEdit
+    id: taskEditorIntervalEdit
+    anchors.left: taskEditorIntervalLabel.right
+    anchors.top: taskEditorIntervalLabel.top
+    margin-left: 6
+    height: 20
+    width: 80
+
+  Label
+    id: taskEditorPriorityLabel
+    text: Priority
+    anchors.left: taskEditorIntervalEdit.right
+    anchors.top: taskEditorIntervalLabel.top
+    margin-left: 12
+
+  TextEdit
+    id: taskEditorPriorityEdit
+    anchors.left: taskEditorPriorityLabel.right
+    anchors.top: taskEditorIntervalLabel.top
+    margin-left: 6
+    height: 20
+    width: 60
+
+  CheckBox
+    id: taskEditorEnabledCheck
+    text: Enabled
+    anchors.left: taskEditorPriorityEdit.right
+    anchors.top: taskEditorIntervalLabel.top
+    margin-left: 12
+
+  Button
+    id: btnTaskEditorPrev
+    text: Prev
+    width: 60
+    height: 20
+    anchors.left: parent.left
+    anchors.top: taskEditorIntervalLabel.bottom
+    margin-left: 10
+    margin-top: 6
+
+  Button
+    id: btnTaskEditorNext
+    text: Next
+    width: 60
+    height: 20
+    anchors.left: btnTaskEditorPrev.right
+    anchors.top: btnTaskEditorPrev.top
+    margin-left: 6
+
+  Button
+    id: btnTaskEditorSave
+    text: Save
+    width: 60
+    height: 20
+    anchors.left: btnTaskEditorNext.right
+    anchors.top: btnTaskEditorPrev.top
+    margin-left: 6
+
+  Button
+    id: btnTaskEditorDelete
+    text: Delete
+    width: 70
+    height: 20
+    anchors.left: btnTaskEditorSave.right
+    anchors.top: btnTaskEditorPrev.top
+    margin-left: 6
+
+
+  Button
+    id: btnPrint
+    text: Print
+    anchors.top: btnTaskEditorPrev.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    margin-left: 12
+    width: 64
+
+  Button
+    id: btnReload
+    text: Reload
+    anchors.top: btnTaskEditorPrev.bottom
+    anchors.left: btnPrint.right
+    margin-top: 10
+    margin-left: 8
+    width: 64
+
+  Button
+    id: btnHardReload
+    text: Hard
+    anchors.top: btnTaskEditorPrev.bottom
+    anchors.left: btnReload.right
+    margin-top: 10
+    margin-left: 8
+    width: 56
+
+  Button
+    id: btnClear
+    text: Clear log
+    anchors.top: btnTaskEditorPrev.bottom
+    anchors.left: btnHardReload.right
+    margin-top: 10
+    margin-left: 8
+    width: 84
+
+  TextEdit
+    id: logBox
+    anchors.top: btnPrint.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    margin-top: 10
+    margin-left: 12
+    margin-right: 12
+    margin-bottom: 12
+    text: ""
