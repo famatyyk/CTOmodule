@@ -992,10 +992,8 @@ function CTOmodule.taskEditor.upsert(name, opts)
   if not rec then return false end
   if rec.name ~= key then
     if CTOmodule.taskEditor.map[key] then
-      CTOmodule.taskEditor.remove(key)
-      if CTOmodule.taskEditor.map[key] then
-        return false, 'failed to remove old entry'
-      end
+      local removed = CTOmodule.taskEditor.remove(key)
+      if not removed then return false, 'failed to remove old entry' end
     end
   end
   CTOmodule.taskEditor.map[rec.name] = rec
@@ -1005,16 +1003,16 @@ end
 
 function CTOmodule.taskEditor.remove(name)
   name = tostring(name or '')
-  if CTOmodule.taskEditor.map[name] then
-    CTOmodule.taskEditor.map[name] = nil
-    local order = CTOmodule.taskEditor.order
-    for i = #order, 1, -1 do
-      if order[i] == name then table.remove(order, i) end
-    end
-    if CTOmodule.taskEditor.index > #order then
-      CTOmodule.taskEditor.index = (#order > 0 and #order or 1)
-    end
+  if not CTOmodule.taskEditor.map[name] then return false end
+  CTOmodule.taskEditor.map[name] = nil
+  local order = CTOmodule.taskEditor.order
+  for i = #order, 1, -1 do
+    if order[i] == name then table.remove(order, i) end
   end
+  if CTOmodule.taskEditor.index > #order then
+    CTOmodule.taskEditor.index = (#order > 0 and #order or 1)
+  end
+  return true
 end
 
 local function _tasksEnsureOrder(name)
