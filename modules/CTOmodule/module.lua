@@ -2,6 +2,68 @@
 CTOmodule = CTOmodule or {}
 
 local MODULE_NAME = 'CTOmodule'
+
+-- NOTE: Some injected blocks compile `safe()` as a global (lexical ordering).
+-- Provide a global fallback so calls like safe(fn, ...) never crash.
+if type(safe) ~= 'function' then
+  function safe(fn, ...)
+    local ok, a, b, c, d, e = pcall(fn, ...)
+    if ok then
+      return true, a, b, c, d, e
+    end
+    return false, a
+  end
+end
+
+-- Global fallbacks for settings helpers in case some blocks resolve them as globals.
+if type(settingsSet) ~= 'function' then
+  function settingsSet(key, value)
+    if not g_settings then return end
+    if type(g_settings.set) == 'function' then
+      pcall(g_settings.set, key, value)
+    elseif type(g_settings.setValue) == 'function' then
+      pcall(g_settings.setValue, key, value)
+    end
+  end
+end
+
+if type(settingsGetBool) ~= 'function' then
+  function settingsGetBool(key, default)
+    if not g_settings then return default end
+    if type(g_settings.getBoolean) == 'function' then
+      local ok, v = pcall(g_settings.getBoolean, key)
+      if ok and type(v) == 'boolean' then return v end
+    end
+    if type(g_settings.get) == 'function' then
+      local ok, v = pcall(g_settings.get, key)
+      if ok then
+        if type(v) == 'boolean' then return v end
+        if v == 'true' or v == '1' or v == 1 then return true end
+        if v == 'false' or v == '0' or v == 0 then return false end
+      end
+    end
+    return default
+  end
+end
+
+if type(settingsGetNumber) ~= 'function' then
+  function settingsGetNumber(key, default)
+    if not g_settings then return default end
+    if type(g_settings.getNumber) == 'function' then
+      local ok, v = pcall(g_settings.getNumber, key)
+      if ok and type(v) == 'number' then return v end
+    end
+    if type(g_settings.get) == 'function' then
+      local ok, v = pcall(g_settings.get, key)
+      if ok then
+        local n = tonumber(v)
+        if n ~= nil then return n end
+      end
+    end
+    return default
+  end
+end
+
 local HOTKEY = 'Ctrl+Shift+C'
 local TICK_HOTKEY = 'Ctrl+Shift+T'
 local RESET_HOTKEY = 'Ctrl+Shift+O'
@@ -65,8 +127,134 @@ function CTOmodule.actions.run(name, ctx)
   return true
 end
 
+local function saveActionHotkeys()
+  local lines = {}
+  for k, rec in pairs(CTOmodule._actionHotkeys.map) do
+    if rec and rec.action then
+      lines[#lines + 1] = tostring(k) .. '=' .. tostring(rec.action)
+    end
+  end
+  table.sort(lines)
+  settingsSet(MODULE_NAME .. '.actionHotkeys', table.concat(lines, '\n'))
+end
+
+local function unbindActionHotkeyInternal(key, silent, dontSave)
+  if not normalizeKeyCombo then
+    -- defensive fallback (should not happen)
+    normalizeKeyCombo = function(k) return tostring(k or ''):gsub('%s+', '') end
+  end
+  key = normalizeKeyCombo(key)
+  if key == '' then return false end
+  local rec = CTOmodule._actionHotkeys.map[key]
+  if not rec then return false end
+
+  if g_keyboard then
+    if type(g_keyboard.unbindKeyDown) == 'function' then
+      safe(g_keyboard.unbindKeyDown, key, rec.fn, rootWidget)
+    elseif type(g_keyboard.unbindKeyPress) == 'function' then
+      safe(g_keyboard.unbindKeyPress, key, rec.fn, rootWidget)
+    end
+  end
+
+  CTOmodule._actionHotkeys.map[key] = nil
+
+  if not dontSave then
+    saveActionHotkeys()
+  end
+  if not silent then
+    CTOmodule.log('unbound action hotkey: ' .. key)
+  end
+  return true
+end
+
+local function bindActionHotkeyInternal(key, actionName, silent, dontSave)
+  if not normalizeKeyCombo then
+    -- defensive fallback (should not happen)
+    normalizeKeyCombo = function(k) return tostring(k or ''):gsub('%s+', '') end
+  end
+  key = normalizeKeyCombo(key)
+  actionName = tostring(actionName or ''):gsub('%s+', '_')
+  if key == '' or actionName == '' then return false, 'empty key/action' end
+
+  -- replace existing
+  unbindActionHotkeyInternal(key, true, true)
+
+  local fn = function()
+    CTOmodule.actions.run(actionName)
+  end
+
+  CTOmodule._actionHotkeys.map[key] = { action = actionName, fn = fn }
+
+  if g_keyboard then
+    if type(g_keyboard.bindKeyDown) == 'function' then
+      safe(g_keyboard.bindKeyDown, key, fn, rootWidget)
+    elseif type(g_keyboard.bindKeyPress) == 'function' then
+      safe(g_keyboard.bindKeyPress, key, fn, rootWidget)
+    end
+  end
+
+  if not dontSave then
+    saveActionHotkeys()
+  end
+  if not silent then
+    CTOmodule.log('bound action hotkey: ' .. key .. ' -> ' .. actionName)
+  end
+  return true
+end
+
+local function loadActionHotkeys()
+  -- expects rootWidget and g_keyboard to be ready
+  local raw = ''
+  if g_settings and type(g_settings.get) == 'function' then
+    local ok, v = safe(g_settings.get, MODULE_NAME .. '.actionHotkeys')
+    if ok and v ~= nil then raw = tostring(v) end
+  end
+
+  for line in raw:gmatch('[^\r\n]+') do
+    local k, a = line:match('^([^=]+)=(.+)$')
+    if k and a then
+      bindActionHotkeyInternal(k, a, true, true)
+    end
+  end
+
+  -- canonicalize stored format
+  saveActionHotkeys()
+end
+
+function CTOmodule.bindActionHotkey(keyCombo, actionName)
+  return bindActionHotkeyInternal(keyCombo, actionName, false, false)
+end
+
+function CTOmodule.unbindActionHotkey(keyCombo)
+  return unbindActionHotkeyInternal(keyCombo, false, false)
+end
+
+function CTOmodule.listActionHotkeys()
+  local lines = {}
+  for k, rec in pairs(CTOmodule._actionHotkeys.map) do
+    if rec and rec.action then
+      lines[#lines + 1] = tostring(k) .. ' -> ' .. tostring(rec.action)
+    end
+  end
+  table.sort(lines)
+  return lines
+end
+
+function CTOmodule.unbindAllActionHotkeys()
+  local keys = {}
+  for k, _ in pairs(CTOmodule._actionHotkeys.map) do keys[#keys + 1] = k end
+  table.sort(keys)
+  for i = 1, #keys do
+    unbindActionHotkeyInternal(keys[i], true, true)
+  end
+  saveActionHotkeys()
+end
+
 
 CTOmodule._tick = CTOmodule._tick or { running = false, intervalMs = 500, event = nil, tickCount = 0 }
+
+CTOmodule._actionHotkeys = CTOmodule._actionHotkeys or { map = {} }
+CTOmodule._actionsUi = CTOmodule._actionsUi or { filter = '', idx = 1, list = {} }
 
 
 local function safe(tfn, ...)
@@ -271,6 +459,12 @@ local function parseInt(s, fallback)
   local n = tonumber(tostring(s or ''):match('%d+'))
   n = math.floor(tonumber(n) or (fallback or 0))
   return n
+end
+
+local function normalizeKeyCombo(key)
+  key = tostring(key or '')
+  key = key:gsub('%s+', '')
+  return key
 end
 
 local function logRender()
@@ -553,6 +747,88 @@ end
 registerDefaultActions() -- preload
 
 
+local function actionsUiRefresh()
+  local t = CTOmodule._actionsUi
+  local filter = tostring(t.filter or ''):lower()
+  local all = CTOmodule.actions.list()
+
+  local list = {}
+  for i = 1, #all do
+    local name = all[i]
+    if filter == '' or tostring(name):lower():find(filter, 1, true) then
+      list[#list + 1] = name
+    end
+  end
+
+  if #list == 0 then
+    t.idx = 1
+  else
+    if t.idx < 1 then t.idx = 1 end
+    if t.idx > #list then t.idx = #list end
+  end
+
+  t.list = list
+
+  local listBox = getChild('actionsListBox')
+  if listBox and listBox.setText then
+    local lines = {}
+    for i = 1, #list do
+      local prefix = (i == t.idx) and '> ' or '  '
+      lines[#lines + 1] = prefix .. list[i]
+    end
+    if #lines == 0 then
+      lines[1] = '(no actions)'
+    end
+    listBox:setText(table.concat(lines, '\n'))
+  end
+
+  local sel = (list[t.idx] or '')
+  local selLabel = getChild('actionsSelectedLabel')
+  if selLabel then
+    uiSetText(selLabel, sel ~= '' and ('Selected: ' .. sel) or 'Selected: (none)')
+  end
+end
+
+local function actionsUiSetFilter(s)
+  CTOmodule._actionsUi.filter = tostring(s or '')
+  CTOmodule._actionsUi.idx = 1
+  actionsUiRefresh()
+end
+
+local function actionsUiNext(delta)
+  local t = CTOmodule._actionsUi
+  if #t.list == 0 then
+    actionsUiRefresh()
+    return
+  end
+  t.idx = (t.idx or 1) + delta
+  if t.idx < 1 then t.idx = 1 end
+  if t.idx > #t.list then t.idx = #t.list end
+  actionsUiRefresh()
+end
+
+local function actionsUiPickToActionEdit()
+  local t = CTOmodule._actionsUi
+  local sel = t.list[t.idx]
+  if not sel then return end
+  local actionEdit = getChild('actionEdit')
+  if actionEdit and actionEdit.setText then
+    actionEdit:setText(sel)
+  end
+  settingsSet(MODULE_NAME .. '.lastAction', sel)
+end
+
+local function hotkeysUiRefresh()
+  local box = getChild('hotkeysListBox')
+  if not box or not box.setText then return end
+  local lines = CTOmodule.listActionHotkeys()
+  if #lines == 0 then
+    box:setText('(no action hotkeys)')
+  else
+    box:setText(table.concat(lines, '\n'))
+  end
+end
+
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
   if enabledCheck then
@@ -611,6 +887,92 @@ if actionEdit then
     if ok and v ~= nil then last = tostring(v) end
   end
   if last and actionEdit.setText then actionEdit:setText(last) end
+
+local filterEdit = getChild('actionsFilterEdit')
+if filterEdit then
+  if filterEdit.setText then filterEdit:setText(CTOmodule._actionsUi.filter or '') end
+  filterEdit.onFocusChange = function(_, focused)
+    if not focused then
+      actionsUiSetFilter(getWidgetText(filterEdit))
+    end
+  end
+end
+
+local btnApplyFilter = getChild('btnApplyFilter')
+if btnApplyFilter then
+  btnApplyFilter.onClick = function()
+    actionsUiSetFilter(getWidgetText(filterEdit))
+  end
+end
+
+local btnPrevAction = getChild('btnPrevAction')
+if btnPrevAction then
+  btnPrevAction.onClick = function()
+    actionsUiNext(-1)
+  end
+end
+
+local btnNextAction = getChild('btnNextAction')
+if btnNextAction then
+  btnNextAction.onClick = function()
+    actionsUiNext(1)
+  end
+end
+
+local btnPickAction = getChild('btnPickAction')
+if btnPickAction then
+  btnPickAction.onClick = function()
+    actionsUiPickToActionEdit()
+    actionsUiRefresh()
+  end
+end
+
+actionsUiRefresh()
+
+local hotkeyEdit = getChild('hotkeyEdit')
+local btnBindHotkey = getChild('btnBindHotkey')
+if btnBindHotkey then
+  btnBindHotkey.onClick = function()
+    local key = getWidgetText(hotkeyEdit)
+    local actionName = getWidgetText(getChild('actionEdit'))
+    if actionName == '' then
+      -- fallback to selected
+      local t = CTOmodule._actionsUi
+      actionName = t.list[t.idx] or ''
+    end
+    if key == '' or actionName == '' then
+      CTOmodule.log('bind hotkey: empty key/action')
+      return
+    end
+    CTOmodule.bindActionHotkey(key, actionName)
+    hotkeysUiRefresh()
+  end
+end
+
+local btnUnbindHotkey = getChild('btnUnbindHotkey')
+if btnUnbindHotkey then
+  btnUnbindHotkey.onClick = function()
+    local key = getWidgetText(hotkeyEdit)
+    if key == '' then
+      CTOmodule.log('unbind hotkey: empty key')
+      return
+    end
+    CTOmodule.unbindActionHotkey(key)
+    hotkeysUiRefresh()
+  end
+end
+
+local btnListHotkeys = getChild('btnListHotkeys')
+if btnListHotkeys then
+  btnListHotkeys.onClick = function()
+    hotkeysUiRefresh()
+    local lines = CTOmodule.listActionHotkeys()
+    CTOmodule.log('action hotkeys: ' .. (#lines > 0 and table.concat(lines, ', ') or '(none)'))
+  end
+end
+
+hotkeysUiRefresh()
+
 end
 
 local function getActionName()
@@ -736,6 +1098,7 @@ end
   end
 CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', resetWin: ' .. RESET_HOTKEY .. ')')
   local _alist = CTOmodule.actions.list(); CTOmodule.log('actions ready: ' .. (#_alist > 0 and table.concat(_alist, ', ') or '(none)'))
+  local _hk = CTOmodule.listActionHotkeys(); CTOmodule.log('action hotkeys: ' .. (#_hk > 0 and table.concat(_hk, ', ') or '(none)'))
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()
@@ -749,6 +1112,7 @@ end
 function CTOmodule.terminate()
   unbindHotkey()
   stopTick()
+  CTOmodule.unbindAllActionHotkeys()
 
   saveWindowState()
 

@@ -1,12 +1,12 @@
 MainWindow
   id: ctoWindow
   text: CTOmodule
-  size: 560 380
+  size: 620 460
   visible: false
 
   Label
     id: title
-    text: CTOmodule MVP v0.5 (Actions)
+    text: CTOmodule MVP v0.6 (Picker + Hotkeys)
     anchors.top: parent.top
     anchors.left: parent.left
     margin-top: 10
@@ -109,19 +109,148 @@ MainWindow
     margin-left: 8
     width: 56
 
+  Label
+    id: pickerLabel
+    text: Picker filter:
+    anchors.top: actionLabel.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    margin-left: 12
+
+  TextEdit
+    id: actionsFilterEdit
+    text: ""
+    anchors.top: actionLabel.bottom
+    anchors.left: pickerLabel.right
+    margin-top: 10
+    margin-left: 10
+    width: 140
+    height: 20
+
+  Button
+    id: btnApplyFilter
+    text: Apply
+    anchors.top: actionLabel.bottom
+    anchors.left: actionsFilterEdit.right
+    margin-top: 10
+    margin-left: 8
+    width: 56
+
+  Button
+    id: btnPrevAction
+    text: Prev
+    anchors.top: actionLabel.bottom
+    anchors.left: btnApplyFilter.right
+    margin-top: 10
+    margin-left: 8
+    width: 56
+
+  Button
+    id: btnNextAction
+    text: Next
+    anchors.top: actionLabel.bottom
+    anchors.left: btnPrevAction.right
+    margin-top: 10
+    margin-left: 8
+    width: 56
+
+  Button
+    id: btnPickAction
+    text: Pick
+    anchors.top: actionLabel.bottom
+    anchors.left: btnNextAction.right
+    margin-top: 10
+    margin-left: 8
+    width: 56
+
+  Label
+    id: actionsSelectedLabel
+    text: Selected: (none)
+    anchors.top: pickerLabel.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    margin-left: 12
+
+  TextEdit
+    id: actionsListBox
+    text: ""
+    anchors.top: actionsSelectedLabel.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    margin-left: 12
+    margin-right: 12
+    height: 90
+
+  Label
+    id: hotkeyLabel
+    text: Hotkey:
+    anchors.top: actionsListBox.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    margin-left: 12
+
+  TextEdit
+    id: hotkeyEdit
+    text: Ctrl+Alt+1
+    anchors.top: actionsListBox.bottom
+    anchors.left: hotkeyLabel.right
+    margin-top: 8
+    margin-left: 10
+    width: 140
+    height: 20
+
+  Button
+    id: btnBindHotkey
+    text: Bind
+    anchors.top: actionsListBox.bottom
+    anchors.left: hotkeyEdit.right
+    margin-top: 8
+    margin-left: 8
+    width: 56
+
+  Button
+    id: btnUnbindHotkey
+    text: Unbind
+    anchors.top: actionsListBox.bottom
+    anchors.left: btnBindHotkey.right
+    margin-top: 8
+    margin-left: 8
+    width: 64
+
+  Button
+    id: btnListHotkeys
+    text: Show
+    anchors.top: actionsListBox.bottom
+    anchors.left: btnUnbindHotkey.right
+    margin-top: 8
+    margin-left: 8
+    width: 56
+
+  TextEdit
+    id: hotkeysListBox
+    text: ""
+    anchors.top: hotkeyLabel.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    margin-left: 12
+    margin-right: 12
+    height: 60
+
   Button
     id: btnPrint
     text: Print
-    anchors.top: intervalLabel.bottom
-    anchors.left: btnListActions.right
+    anchors.top: hotkeysListBox.bottom
+    anchors.left: parent.left
     margin-top: 10
-    margin-left: 8
+    margin-left: 12
     width: 64
 
   Button
     id: btnReload
     text: Reload
-    anchors.top: intervalLabel.bottom
+    anchors.top: hotkeysListBox.bottom
     anchors.left: btnPrint.right
     margin-top: 10
     margin-left: 8
@@ -130,7 +259,7 @@ MainWindow
   Button
     id: btnHardReload
     text: Hard
-    anchors.top: intervalLabel.bottom
+    anchors.top: hotkeysListBox.bottom
     anchors.left: btnReload.right
     margin-top: 10
     margin-left: 8
@@ -139,7 +268,7 @@ MainWindow
   Button
     id: btnClear
     text: Clear log
-    anchors.top: intervalLabel.bottom
+    anchors.top: hotkeysListBox.bottom
     anchors.left: btnHardReload.right
     margin-top: 10
     margin-left: 8
@@ -147,11 +276,11 @@ MainWindow
 
   TextEdit
     id: logBox
-    anchors.top: actionLabel.bottom
+    anchors.top: btnPrint.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
-    margin-top: 12
+    margin-top: 10
     margin-left: 12
     margin-right: 12
     margin-bottom: 12
