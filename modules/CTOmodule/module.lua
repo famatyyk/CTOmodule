@@ -3,14 +3,19 @@ CTOmodule = CTOmodule or {}
 
 local MODULE_NAME = 'CTOmodule'
 local HOTKEY = 'Ctrl+Shift+C'
+local TICK_HOTKEY = 'Ctrl+Shift+T'
 
 local rootWidget = nil
 local window = nil
 local hotkeyFn = nil
+local tickHotkeyFn = nil
 
 -- keep log across reloads
 CTOmodule._log = CTOmodule._log or { buf = {}, max = 200 }
 CTOmodule.config = CTOmodule.config or {}
+
+CTOmodule._tick = CTOmodule._tick or { running = false, intervalMs = 500, event = nil, tickCount = 0 }
+
 
 local function safe(tfn, ...)
   local ok, res = pcall(tfn, ...)
@@ -40,6 +45,25 @@ local function settingsGetBool(key, default)
   return default
 end
 
+local function settingsGetNumber(key, default)
+  if not g_settings then return default end
+
+  if type(g_settings.getNumber) == 'function' then
+    local ok, v = safe(g_settings.getNumber, key)
+    if ok and type(v) == 'number' then return v end
+  end
+
+  if type(g_settings.get) == 'function' then
+    local ok, v = safe(g_settings.get, key)
+    if ok then
+      local n = tonumber(v)
+      if n ~= nil then return n end
+    end
+  end
+
+  return default
+end
+
 local function settingsSet(key, value)
   if not g_settings then return end
   if type(g_settings.set) == 'function' then safe(g_settings.set, key, value); return end
@@ -57,6 +81,77 @@ end
 local function uiSetText(widget, text)
   if not widget then return end
   if type(widget.setText) == 'function' then widget:setText(text); return end
+end
+
+local function saveWindowState()
+  if not window then return end
+  -- visible
+  local vis = false
+  if window.isVisible then
+    local ok, v = safe(function() return window:isVisible() end)
+    if ok then vis = v and true or false end
+  end
+  settingsSet(MODULE_NAME .. '.win.visible', vis)
+
+  -- position
+  if window.getPosition then
+    local ok, p = safe(function() return window:getPosition() end)
+    if ok and type(p) == 'table' then
+      local x = tonumber(p.x or p[1])
+      local y = tonumber(p.y or p[2])
+      if x then settingsSet(MODULE_NAME .. '.win.x', x) end
+      if y then settingsSet(MODULE_NAME .. '.win.y', y) end
+    end
+  end
+
+  -- size
+  if window.getSize then
+    local ok, s = safe(function() return window:getSize() end)
+    if ok and type(s) == 'table' then
+      local w = tonumber(s.width or s.w or s[1])
+      local h = tonumber(s.height or s.h or s[2])
+      if w then settingsSet(MODULE_NAME .. '.win.w', w) end
+      if h then settingsSet(MODULE_NAME .. '.win.h', h) end
+    end
+  end
+end
+
+local function restoreWindowState()
+  if not window then return end
+
+  local x = settingsGetNumber(MODULE_NAME .. '.win.x', nil)
+  local y = settingsGetNumber(MODULE_NAME .. '.win.y', nil)
+  if x ~= nil and y ~= nil then
+    if window.setPosition then
+      safe(function() window:setPosition({x = x, y = y}) end)
+    else
+      if window.setX then safe(function() window:setX(x) end) end
+      if window.setY then safe(function() window:setY(y) end) end
+    end
+  end
+
+  local w = settingsGetNumber(MODULE_NAME .. '.win.w', nil)
+  local h = settingsGetNumber(MODULE_NAME .. '.win.h', nil)
+  if w ~= nil and h ~= nil then
+    if window.setSize then
+      safe(function() window:setSize({width = w, height = h}) end)
+    else
+      if window.resize then safe(function() window:resize({width = w, height = h}) end) end
+    end
+  end
+
+  local vis = settingsGetBool(MODULE_NAME .. '.win.visible', false)
+  if vis then
+    if window.show then safe(function() window:show() end) end
+  else
+    if window.hide then safe(function() window:hide() end) end
+  end
+end
+
+local function parseInt(s, fallback)
+  local n = tonumber(tostring(s or ''):match('%d+'))
+  n = math.floor(tonumber(n) or (fallback or 0))
+  return n
 end
 
 local function logRender()
@@ -86,6 +181,106 @@ function CTOmodule.log(msg)
   end
 end
 
+local function updateStatus()
+  local statusLabel = getChild('statusLabel')
+  if not statusLabel then return end
+  local t = CTOmodule._tick
+  local state = t.running and 'RUNNING' or 'STOPPED'
+  local msg = state .. ' | interval=' .. tostring(t.intervalMs) .. 'ms | tick=' .. tostring(t.tickCount)
+  uiSetText(statusLabel, msg)
+end
+
+local function restoreTickState(cfg)
+  -- interval: config default -> settings override
+  local defaultMs = (cfg and cfg.tickIntervalMs) or CTOmodule._tick.intervalMs or 500
+  local savedMs = settingsGetNumber(MODULE_NAME .. '.intervalMs', defaultMs)
+  CTOmodule._tick.intervalMs = savedMs
+  local intervalEdit = getChild('intervalEdit')
+  if intervalEdit and intervalEdit.setText then intervalEdit:setText(tostring(savedMs)) end
+
+  -- running: settings -> optional forced autostart
+  local shouldRun = settingsGetBool(MODULE_NAME .. '.running', false)
+  if cfg and cfg.tickAutoStart == true then
+    shouldRun = true
+  end
+
+  updateStatus()
+
+  if shouldRun then
+    CTOmodule.start()
+  end
+end
+
+local function stopTick()
+  local t = CTOmodule._tick
+  t.running = false
+  if t.event and removeEvent then
+    safe(removeEvent, t.event)
+  end
+  t.event = nil
+  updateStatus()
+end
+
+local function tickStep()
+  local t = CTOmodule._tick
+  if not t.running then return end
+
+  t.tickCount = (t.tickCount or 0) + 1
+  updateStatus()
+
+  -- Optional periodic log (avoid spamming)
+  local every = CTOmodule.config and CTOmodule.config.tickLogEvery or 0
+  if every and every > 0 and (t.tickCount % every == 0) then
+    CTOmodule.log('tick #' .. tostring(t.tickCount))
+  end
+
+  if scheduleEvent then
+    local ok, ev = safe(scheduleEvent, tickStep, t.intervalMs)
+    if ok then t.event = ev end
+  end
+end
+
+function CTOmodule.setInterval(ms)
+  local t = CTOmodule._tick
+  ms = parseInt(ms, t.intervalMs)
+  if ms < 50 then ms = 50 end
+  if ms > 60000 then ms = 60000 end
+  t.intervalMs = ms
+  settingsSet(MODULE_NAME .. '.intervalMs', ms)
+  updateStatus()
+end
+
+function CTOmodule.start()
+  local t = CTOmodule._tick
+  if t.running then
+    updateStatus()
+    return
+  end
+  t.running = true
+  settingsSet(MODULE_NAME .. '.running', true)
+  CTOmodule.log('tick loop started (' .. tostring(t.intervalMs) .. 'ms)')
+  tickStep()
+end
+
+function CTOmodule.stop()
+  local t = CTOmodule._tick
+  if not t.running then
+    updateStatus()
+    return
+  end
+  stopTick()
+  settingsSet(MODULE_NAME .. '.running', false)
+  CTOmodule.log('tick loop stopped')
+end
+
+function CTOmodule.toggleRun()
+  local t = CTOmodule._tick
+  if t.running then
+    CTOmodule.stop()
+  else
+    CTOmodule.start()
+  end
+end
 local function mergeInto(dst, src)
   if type(dst) ~= 'table' or type(src) ~= 'table' then return dst end
   for k, v in pairs(src) do
@@ -124,6 +319,13 @@ local function unbindHotkey()
   elseif type(g_keyboard.unbindKeyPress) == 'function' then
     safe(g_keyboard.unbindKeyPress, HOTKEY, hotkeyFn, rootWidget)
   end
+if tickHotkeyFn then
+  if type(g_keyboard.unbindKeyDown) == 'function' then
+    safe(g_keyboard.unbindKeyDown, TICK_HOTKEY, tickHotkeyFn, rootWidget)
+  elseif type(g_keyboard.unbindKeyPress) == 'function' then
+    safe(g_keyboard.unbindKeyPress, TICK_HOTKEY, tickHotkeyFn, rootWidget)
+  end
+end
 end
 
 local function bindHotkey()
@@ -138,6 +340,16 @@ local function bindHotkey()
   elseif type(g_keyboard.bindKeyPress) == 'function' then
     safe(g_keyboard.bindKeyPress, HOTKEY, hotkeyFn, rootWidget)
   end
+
+tickHotkeyFn = function()
+  CTOmodule.toggleRun()
+end
+
+if type(g_keyboard.bindKeyDown) == 'function' then
+  safe(g_keyboard.bindKeyDown, TICK_HOTKEY, tickHotkeyFn, rootWidget)
+elseif type(g_keyboard.bindKeyPress) == 'function' then
+  safe(g_keyboard.bindKeyPress, TICK_HOTKEY, tickHotkeyFn, rootWidget)
+end
 end
 
 function CTOmodule.toggle()
@@ -149,6 +361,7 @@ function CTOmodule.toggle()
     if window.raise then window:raise() end
     if window.focus then window:focus() end
   end
+  saveWindowState()
 end
 
 function CTOmodule.reload()
@@ -210,6 +423,54 @@ local function wireUi()
     end
   end
 
+
+local function applyIntervalFromUI()
+  if not intervalEdit then return end
+  if intervalEdit.getText then
+    CTOmodule.setInterval(intervalEdit:getText())
+  elseif intervalEdit.getPlainText then
+    CTOmodule.setInterval(intervalEdit:getPlainText())
+  end
+end
+
+local intervalEdit = getChild('intervalEdit')
+if intervalEdit then
+  -- initialize from current interval
+  if intervalEdit.setText then intervalEdit:setText(tostring(CTOmodule._tick.intervalMs)) end
+
+  -- Some builds use TextEdit without onEnter; apply on focus loss as a safe fallback.
+  intervalEdit.onFocusChange = function(_, focused)
+    if not focused then
+      applyIntervalFromUI()
+    end
+  end
+end
+
+local btnStart = getChild('btnStart')
+if btnStart then
+  btnStart.onClick = function()
+    applyIntervalFromUI()
+    CTOmodule.start()
+  end
+end
+
+local btnStop = getChild('btnStop')
+if btnStop then
+  btnStop.onClick = function()
+    CTOmodule.stop()
+  end
+end
+
+local btnToggleRun = getChild('btnToggleRun')
+if btnToggleRun then
+  btnToggleRun.onClick = function()
+    applyIntervalFromUI()
+    CTOmodule.toggleRun()
+  end
+end
+
+updateStatus()
+
   -- render current log into UI
   local logBox = getChild('logBox')
   if logBox then
@@ -234,6 +495,14 @@ function CTOmodule.init()
   -- config
   local cfg = loadConfig()
 
+-- apply config defaults
+if cfg and cfg.logMaxLines then
+  CTOmodule._log.max = cfg.logMaxLines
+end
+if cfg and cfg.tickIntervalMs then
+  CTOmodule._tick.intervalMs = cfg.tickIntervalMs
+end
+
   -- UI (module-relative path)
   window = g_ui.loadUI('ui/main.otui', rootWidget)
   if not window then
@@ -249,15 +518,22 @@ function CTOmodule.init()
   unbindHotkey()
   bindHotkey()
 
-  CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ')')
-  if cfg and cfg.enabledByDefault == false then
-    -- optionally start disabled
-    settingsSet(MODULE_NAME .. '.enabled', false)
-  end
+CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ')')
+
+-- restore persisted window + tick state only after UI and binds are ready
+restoreWindowState()
+restoreTickState(cfg)
+
+if cfg and cfg.enabledByDefault == false then
+  settingsSet(MODULE_NAME .. '.enabled', false)
+end
 end
 
 function CTOmodule.terminate()
   unbindHotkey()
+  stopTick()
+
+  saveWindowState()
 
   if window then
     window:destroy()
