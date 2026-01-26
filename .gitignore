@@ -10,3 +10,4 @@ dist/
 node_modules/
 __pycache__/
 .venv/
+*.zip
