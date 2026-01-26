@@ -327,6 +327,7 @@ CTOmodule._tick = CTOmodule._tick or { running = false, intervalMs = 500, event 
 
 CTOmodule._actionHotkeys = CTOmodule._actionHotkeys or { map = {} }
 CTOmodule._actionsUi = CTOmodule._actionsUi or { filter = '', idx = 1, list = {} }
+CTOmodule._tasksUi = CTOmodule._tasksUi or { filter = '', idx = 1, list = {} }
 
 
 local function safe(tfn, ...)
@@ -899,6 +900,114 @@ local function _saveTasksEnabled()
   settingsSet(MODULE_NAME .. '.tasksEnabled', table.concat(lines, '\n'))
 end
 
+-- tasks config (intervalMs + priority) persistence
+CTOmodule.tasks._cfg = CTOmodule.tasks._cfg or nil
+CTOmodule.tasks._sorted = CTOmodule.tasks._sorted or {}
+
+local function _saveTasksConfig()
+  local lines = {}
+  for name, rec in pairs(CTOmodule.tasks.map) do
+    if rec then
+      local i = tonumber(rec.intervalMs) or 1000
+      local p = tonumber(rec.priority) or 0
+      lines[#lines + 1] = tostring(name) .. '=' .. tostring(i) .. ',' .. tostring(p)
+    end
+  end
+  table.sort(lines)
+  settingsSet(MODULE_NAME .. '.tasksConfig', table.concat(lines, '\n'))
+end
+
+local function _loadTasksConfig()
+  local raw = settingsGetString(MODULE_NAME .. '.tasksConfig', '')
+  local cfg = {}
+  for line in raw:gmatch('[^\r\n]+') do
+    local k, rest = line:match('^([^=]+)=(.+)$')
+    if k and rest then
+      local i, p = rest:match('^(%d+),(%-?%d+)$')
+      if i and p then
+        cfg[tostring(k)] = { intervalMs = tonumber(i), priority = tonumber(p) }
+      end
+    end
+  end
+  return cfg
+end
+
+function CTOmodule.tasks._rebuildSorted()
+  local list = {}
+  for i = 1, #CTOmodule.tasks.order do
+    list[#list + 1] = CTOmodule.tasks.order[i]
+  end
+  table.sort(list, function(a, b)
+    local ra = CTOmodule.tasks.map[a]
+    local rb = CTOmodule.tasks.map[b]
+    local pa = (ra and tonumber(ra.priority)) or 0
+    local pb = (rb and tonumber(rb.priority)) or 0
+    if pa == pb then return tostring(a) < tostring(b) end
+    return pa > pb
+  end)
+  CTOmodule.tasks._sorted = list
+end
+
+function CTOmodule.tasks.loadConfig()
+  CTOmodule.tasks._cfg = _loadTasksConfig()
+  return CTOmodule.tasks._cfg
+end
+
+function CTOmodule.tasks.applyConfig()
+  local cfg = CTOmodule.tasks._cfg or CTOmodule.tasks.loadConfig()
+  for name, rec in pairs(CTOmodule.tasks.map) do
+    local c = cfg and cfg[name]
+    if rec and c then
+      if tonumber(c.intervalMs) then rec.intervalMs = tonumber(c.intervalMs) end
+      if tonumber(c.priority) then rec.priority = tonumber(c.priority) end
+    end
+  end
+  CTOmodule.tasks._rebuildSorted()
+end
+
+function CTOmodule.tasks.setInterval(name, ms, dontSave)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local rec = CTOmodule.tasks.map[name]
+  if not rec then
+    CTOmodule.log('task not found: ' .. name)
+    return false
+  end
+  local v = tonumber(ms) or rec.intervalMs or 1000
+  if v < 50 then v = 50 end
+  if v > 60000 then v = 60000 end
+  rec.intervalMs = v
+  rec.nextAt = 0
+  CTOmodule.tasks._cfg = CTOmodule.tasks._cfg or _loadTasksConfig()
+  CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
+  CTOmodule.tasks._cfg[name].intervalMs = v
+  CTOmodule.tasks._cfg[name].priority = tonumber(rec.priority) or 0
+  if not dontSave then _saveTasksConfig() end
+  CTOmodule.log('task ' .. name .. ' intervalMs=' .. tostring(v))
+  return true
+end
+
+function CTOmodule.tasks.setPriority(name, pr, dontSave)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local rec = CTOmodule.tasks.map[name]
+  if not rec then
+    CTOmodule.log('task not found: ' .. name)
+    return false
+  end
+  local v = tonumber(pr) or 0
+  if v > 1000 then v = 1000 end
+  if v < -1000 then v = -1000 end
+  rec.priority = v
+  CTOmodule.tasks._rebuildSorted()
+  CTOmodule.tasks._cfg = CTOmodule.tasks._cfg or _loadTasksConfig()
+  CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
+  CTOmodule.tasks._cfg[name].intervalMs = tonumber(rec.intervalMs) or 1000
+  CTOmodule.tasks._cfg[name].priority = v
+  if not dontSave then _saveTasksConfig() end
+  CTOmodule.log('task ' .. name .. ' priority=' .. tostring(v))
+  return true
+end
+
+
 function CTOmodule.tasks.register(name, fn, opts)
   name = tostring(name or ''):gsub('%s+', '_')
   if name == '' then return false, 'empty name' end
@@ -917,6 +1026,11 @@ function CTOmodule.tasks.register(name, fn, opts)
   if rec.intervalMs < 50 then rec.intervalMs = 50 end
   if rec.intervalMs > 60000 then rec.intervalMs = 60000 end
   rec.priority = tonumber(opts.priority) or rec.priority or 0
+  local cfg = CTOmodule.tasks._cfg and CTOmodule.tasks._cfg[name]
+  if cfg then
+    if tonumber(cfg.intervalMs) then rec.intervalMs = tonumber(cfg.intervalMs) end
+    if tonumber(cfg.priority) then rec.priority = tonumber(cfg.priority) end
+  end
   rec.enabled = (rec.enabled == true) and true or false
   rec.nextAt = rec.nextAt or 0
   rec.runCount = rec.runCount or 0
@@ -925,6 +1039,7 @@ function CTOmodule.tasks.register(name, fn, opts)
 
   CTOmodule.tasks.map[name] = rec
   _tasksEnsureOrder(name)
+  if CTOmodule.tasks._rebuildSorted then CTOmodule.tasks._rebuildSorted() end
   return true
 end
 
@@ -938,8 +1053,10 @@ end
 
 function CTOmodule.tasks.listEnabled()
   local out = {}
-  for i = 1, #CTOmodule.tasks.order do
-    local name = CTOmodule.tasks.order[i]
+  local list = CTOmodule.tasks._sorted
+  if not list or #list == 0 then list = CTOmodule.tasks.order end
+  for i = 1, #list do
+    local name = list[i]
     local rec = CTOmodule.tasks.map[name]
     if rec and rec.enabled then out[#out + 1] = name end
   end
@@ -1233,6 +1350,131 @@ local function hotkeysUiRefresh()
   end
 end
 
+
+
+local function tasksUiRefresh()
+  local t = CTOmodule._tasksUi
+  local filter = tostring(t.filter or ''):lower()
+  local all = CTOmodule.tasks and CTOmodule.tasks._sorted
+  if not all or #all == 0 then
+    all = CTOmodule.tasks and CTOmodule.tasks.list and CTOmodule.tasks.list() or {}
+  end
+
+  local list = {}
+  for i = 1, #all do
+    local name = all[i]
+    if filter == '' or tostring(name):lower():find(filter, 1, true) then
+      list[#list + 1] = name
+    end
+  end
+
+  if #list == 0 then
+    t.idx = 1
+  else
+    if t.idx < 1 then t.idx = 1 end
+    if t.idx > #list then t.idx = #list end
+  end
+
+  t.list = list
+
+  local listBox = getChild('tasksListBox')
+  if listBox and listBox.setText then
+    local lines = {}
+    for i = 1, #list do
+      local name = list[i]
+      local rec = CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.map[name] or nil
+      local prefix = (i == t.idx) and '> ' or '  '
+      local enabled = (rec and rec.enabled) and 'ON' or 'off'
+      local intervalMs = rec and rec.intervalMs or 0
+      local pr = rec and rec.priority or 0
+      lines[#lines + 1] = prefix .. name .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr)
+    end
+    if #lines == 0 then
+      lines[1] = '(no tasks)'
+    end
+    listBox:setText(table.concat(lines, '\n'))
+  end
+
+  local sel = list[t.idx]
+  local selLabel = getChild('tasksSelectedLabel')
+  if selLabel then
+    uiSetText(selLabel, sel and ('Task: ' .. sel) or 'Task: (none)')
+  end
+
+  local rec = sel and CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.map[sel] or nil
+  local intervalEdit = getChild('taskIntervalEdit')
+  if intervalEdit and intervalEdit.setText then
+    intervalEdit:setText(rec and tostring(rec.intervalMs or '') or '')
+  end
+  local prEdit = getChild('taskPriorityEdit')
+  if prEdit and prEdit.setText then
+    prEdit:setText(rec and tostring(rec.priority or '') or '')
+  end
+end
+
+local function tasksUiSetFilter(s)
+  CTOmodule._tasksUi.filter = tostring(s or '')
+  CTOmodule._tasksUi.idx = 1
+  tasksUiRefresh()
+end
+
+local function tasksUiNext(delta)
+  local t = CTOmodule._tasksUi
+  if #t.list == 0 then
+    tasksUiRefresh()
+    return
+  end
+  t.idx = (t.idx or 1) + delta
+  if t.idx < 1 then t.idx = 1 end
+  if t.idx > #t.list then t.idx = #t.list end
+  tasksUiRefresh()
+end
+
+local function tasksUiSelectedName()
+  local t = CTOmodule._tasksUi
+  return t.list[t.idx]
+end
+
+local function tasksUiToggleSelected()
+  local name = tasksUiSelectedName()
+  if not name then return end
+  if CTOmodule.tasks and CTOmodule.tasks.toggle then
+    CTOmodule.tasks.toggle(name)
+  end
+  tasksUiRefresh()
+end
+
+local function tasksUiRunOnceSelected()
+  local name = tasksUiSelectedName()
+  if not name then return end
+  if CTOmodule.tasks and CTOmodule.tasks.runOnce then
+    CTOmodule.tasks.runOnce(name)
+  end
+  tasksUiRefresh()
+end
+
+local function tasksUiApplyIntervalFromUI()
+  local name = tasksUiSelectedName()
+  if not name then return end
+  local w = getChild('taskIntervalEdit')
+  local ms = getWidgetText(w)
+  if CTOmodule.tasks and CTOmodule.tasks.setInterval then
+    CTOmodule.tasks.setInterval(name, ms)
+  end
+  tasksUiRefresh()
+end
+
+local function tasksUiApplyPriorityFromUI()
+  local name = tasksUiSelectedName()
+  if not name then return end
+  local w = getChild('taskPriorityEdit')
+  local pr = getWidgetText(w)
+  if CTOmodule.tasks and CTOmodule.tasks.setPriority then
+    CTOmodule.tasks.setPriority(name, pr)
+  end
+  tasksUiRefresh()
+end
+
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
   if enabledCheck then
@@ -1446,6 +1688,69 @@ if btnToggleRun then
   end
 end
 
+
+-- Tasks UI
+local tasksFilterEdit = getChild('tasksFilterEdit')
+if tasksFilterEdit then
+  if tasksFilterEdit.setText then tasksFilterEdit:setText(CTOmodule._tasksUi.filter or '') end
+  tasksFilterEdit.onFocusChange = function(_, focused)
+    if not focused then
+      tasksUiSetFilter(getWidgetText(tasksFilterEdit))
+    end
+  end
+end
+
+local btnTasksRefresh = getChild('btnTasksRefresh')
+if btnTasksRefresh then
+  btnTasksRefresh.onClick = function()
+    tasksUiRefresh()
+  end
+end
+
+local btnTasksPrev = getChild('btnTasksPrev')
+if btnTasksPrev then
+  btnTasksPrev.onClick = function()
+    tasksUiNext(-1)
+  end
+end
+
+local btnTasksNext = getChild('btnTasksNext')
+if btnTasksNext then
+  btnTasksNext.onClick = function()
+    tasksUiNext(1)
+  end
+end
+
+local btnTasksToggle = getChild('btnTasksToggle')
+if btnTasksToggle then
+  btnTasksToggle.onClick = function()
+    tasksUiToggleSelected()
+  end
+end
+
+local btnTasksRunOnce = getChild('btnTasksRunOnce')
+if btnTasksRunOnce then
+  btnTasksRunOnce.onClick = function()
+    tasksUiRunOnceSelected()
+  end
+end
+
+local btnTaskSetInterval = getChild('btnTaskSetInterval')
+if btnTaskSetInterval then
+  btnTaskSetInterval.onClick = function()
+    tasksUiApplyIntervalFromUI()
+  end
+end
+
+local btnTaskSetPriority = getChild('btnTaskSetPriority')
+if btnTaskSetPriority then
+  btnTaskSetPriority.onClick = function()
+    tasksUiApplyPriorityFromUI()
+  end
+end
+
+tasksUiRefresh()
+
 updateStatus()
 
   -- render current log into UI
@@ -1509,6 +1814,9 @@ CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', re
 
 
 -- ensure default tasks are registered (safe on reload/hardReload)
+if CTOmodule.tasks and CTOmodule.tasks.applyConfig then
+  CTOmodule.tasks.applyConfig()
+end
 if CTOmodule.tasks and CTOmodule.tasks.loadEnabled then
   CTOmodule.tasks.loadEnabled()
 end
