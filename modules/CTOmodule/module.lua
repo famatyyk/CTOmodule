@@ -978,11 +978,11 @@ function CTOmodule.taskEditor.list()
   return out
 end
 
-function CTOmodule.taskEditor.upsert(name, opts)
-  local key = tostring(name or '')
+function CTOmodule.taskEditor.upsert(key, opts)
+  key = tostring(key or ''):gsub('[\r\n]+', ' '):gsub('%s+', '_')
+  if key == '' then return false end
   local rec = CTOmodule.taskEditor.map[key] or { name = key }
   if opts then
-    if opts.name ~= nil then rec.name = opts.name end
     if opts.intervalMs ~= nil then rec.intervalMs = opts.intervalMs end
     if opts.priority ~= nil then rec.priority = opts.priority end
     if opts.enabled ~= nil then rec.enabled = opts.enabled end
@@ -990,9 +990,6 @@ function CTOmodule.taskEditor.upsert(name, opts)
   end
   rec = _taskEditorNormalize(rec)
   if not rec then return false end
-  if rec.name ~= key then
-    CTOmodule.taskEditor.remove(key)
-  end
   CTOmodule.taskEditor.map[rec.name] = rec
   _taskEditorEnsureOrder(rec.name)
   return true
