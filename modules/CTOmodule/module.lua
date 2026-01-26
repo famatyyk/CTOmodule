@@ -2353,14 +2353,14 @@ if CTOmodule.tasks and CTOmodule.tasks.list then
   local _tlist = CTOmodule.tasks.list()
   CTOmodule.log('tasks ready: ' .. (#_tlist > 0 and table.concat(_tlist, ', ') or '(none)'))
 end
-  if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
-    local _ten = CTOmodule.tasks.listEnabled()
-    CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
-  end
-  if CTOmodule.taskEditor and CTOmodule.taskEditor.list then
-    local _telist = CTOmodule.taskEditor.list()
-    CTOmodule.log('task editor entries: ' .. (#_telist > 0 and table.concat(_telist, ', ') or '(none)'))
-  end
+if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
+  local _ten = CTOmodule.tasks.listEnabled()
+  CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
+end
+if CTOmodule.taskEditor and CTOmodule.taskEditor.list then
+  local _telist = CTOmodule.taskEditor.list()
+  CTOmodule.log('task editor entries: ' .. (#_telist > 0 and table.concat(_telist, ', ') or '(none)'))
+end
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()
