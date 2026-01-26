@@ -302,43 +302,6 @@ MainWindow
     margin-left: 10
     margin-top: 6
 
-  Button
-    id: btnTasksEnableAll
-    text: EnableAll
-    width: 90
-    height: 24
-    anchors.left: parent.left
-    anchors.top: tasksSelectedLabel.bottom
-    margin-left: 10
-    margin-top: 6
-
-  Button
-    id: btnTasksDisableAll
-    text: DisableAll
-    width: 90
-    height: 24
-    anchors.left: btnTasksEnableAll.right
-    anchors.top: btnTasksEnableAll.top
-    margin-left: 6
-
-  Button
-    id: btnTasksMute
-    text: Mute
-    width: 70
-    height: 24
-    anchors.left: btnTasksDisableAll.right
-    anchors.top: btnTasksEnableAll.top
-    margin-left: 6
-
-  Button
-    id: btnTasksMuteAll
-    text: MuteAll
-    width: 80
-    height: 24
-    anchors.left: btnTasksMute.right
-    anchors.top: btnTasksEnableAll.top
-    margin-left: 6
-
   Label
     id: tasksFilterLabel
     text: Filter
@@ -547,6 +510,15 @@ MainWindow
 
 
   Button
+    id: btnTaskEditorApply
+    text: Apply
+    width: 60
+    height: 20
+    anchors.left: btnTaskEditorDelete.right
+    anchors.top: btnTaskEditorPrev.top
+    margin-left: 6
+
+  Button
     id: btnPrint
     text: Print
     anchors.top: btnTaskEditorPrev.bottom
@@ -558,27 +530,24 @@ MainWindow
   Button
     id: btnReload
     text: Reload
-    anchors.top: btnTaskEditorPrev.bottom
+    anchors.top: btnPrint.top
     anchors.left: btnPrint.right
-    margin-top: 10
     margin-left: 8
     width: 64
 
   Button
     id: btnHardReload
     text: Hard
-    anchors.top: btnTaskEditorPrev.bottom
+    anchors.top: btnPrint.top
     anchors.left: btnReload.right
-    margin-top: 10
     margin-left: 8
     width: 56
 
   Button
     id: btnClear
     text: Clear log
-    anchors.top: btnTaskEditorPrev.bottom
+    anchors.top: btnPrint.top
     anchors.left: btnHardReload.right
-    margin-top: 10
     margin-left: 8
     width: 84
 

@@ -153,24 +153,17 @@ local tasksUiToggleSelected
 local tasksUiRunOnceSelected
 local tasksUiApplyIntervalFromUI
 local tasksUiApplyPriorityFromUI
+
+
 local taskEditorUiRefresh
 local taskEditorUiNext
-local taskEditorUiPrev
 local taskEditorUiSaveFromUI
 local taskEditorUiDeleteSelected
 
-
-local tasksUiToggleMuteSelected
-local tasksUiToggleMuteAll
-local tasksUiEnableAll
-local tasksUiDisableAll
 -- keep log across reloads
 CTOmodule._log = CTOmodule._log or { buf = {}, max = 200 }
 CTOmodule.config = CTOmodule.config or {}
 
-
-CTOmodule._taskLogMuteGlobal = (CTOmodule._taskLogMuteGlobal == true) and true or false
-CTOmodule._inTask = nil
 CTOmodule.actions = CTOmodule.actions or { map = {}, order = {} }
 
 local function actionsEnsureOrder(name)
@@ -349,9 +342,9 @@ CTOmodule._tick = CTOmodule._tick or { running = false, intervalMs = 500, event 
 CTOmodule._actionHotkeys = CTOmodule._actionHotkeys or { map = {} }
 CTOmodule._actionsUi = CTOmodule._actionsUi or { filter = '', idx = 1, list = {} }
 CTOmodule._tasksUi = CTOmodule._tasksUi or { filter = '', idx = 1, list = {} }
+
+
 CTOmodule._taskEditorUi = CTOmodule._taskEditorUi or { idx = 1, list = {} }
-
-
 local function safe(tfn, ...)
   local ok, res = pcall(tfn, ...)
   if ok then return true, res end
@@ -579,22 +572,8 @@ local function logRender()
   return table.concat(buf, "\n")
 end
 
-function CTOmodule.log(msg, opts)
-  opts = opts or {}
+function CTOmodule.log(msg)
   msg = tostring(msg or '')
-
-  -- optional task log muting
-  local inTask = CTOmodule._inTask
-  if inTask and not opts.force then
-    if CTOmodule._taskLogMuteGlobal then
-      return
-    end
-    local rec = CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.map[inTask] or nil
-    if rec and rec.muteLog then
-      return
-    end
-  end
-
   -- always print (dev visibility)
   print('[' .. MODULE_NAME .. '] ' .. msg)
 
@@ -614,18 +593,6 @@ function CTOmodule.log(msg, opts)
     end
   end
 end
-
-function CTOmodule.setMuteTaskLogs(enabled)
-  CTOmodule._taskLogMuteGlobal = enabled and true or false
-  settingsSet(MODULE_NAME .. '.muteTaskLogs', CTOmodule._taskLogMuteGlobal)
-  CTOmodule.log('task logs muted=' .. tostring(CTOmodule._taskLogMuteGlobal), { force = true })
-  if window and tasksUiRefresh then tasksUiRefresh() end
-end
-
-function CTOmodule.toggleMuteTaskLogs()
-  CTOmodule.setMuteTaskLogs(not CTOmodule._taskLogMuteGlobal)
-end
-
 
 local function updateStatus()
   local statusLabel = getChild('statusLabel')
@@ -856,11 +823,8 @@ end
 
 
 
--- === MVP v0.7: Task Scheduler (small, safe, console-first) ===
-CTOmodule.tasks = CTOmodule.tasks or { map = {}, order = {} }
-CTOmodule._tasksRuntime = CTOmodule._tasksRuntime or { lastOnline = nil }
-
--- === MVP v0.9: Task Editor (model + persistence + UI skeleton) ===
+-- === MVP v0
+-- === MVP v0.9: Task Editor (model + persistence) ===
 CTOmodule.taskEditor = CTOmodule.taskEditor or { map = {}, order = {}, index = 1 }
 CTOmodule.taskEditor._key = CTOmodule.taskEditor._key or (MODULE_NAME .. '.taskEditor')
 
@@ -872,22 +836,39 @@ local function _taskEditorEnsureOrder(name)
   order[#order + 1] = name
 end
 
-local function _taskEditorLineFrom(rec)
+local function _taskEditorNormalize(rec)
   if not rec then return nil end
-  local name = tostring(rec.name or ''):gsub('[\r\n]+', ' '):gsub('%s+', '_')
-  if name == '' then return nil end
+  rec.name = tostring(rec.name or ''):gsub('[\r\n]+', ' '):gsub('%s+', '_')
+  if rec.name == '' then return nil end
+
   local intervalMs = tonumber(rec.intervalMs) or 1000
   if intervalMs < 50 then intervalMs = 50 end
   if intervalMs > 60000 then intervalMs = 60000 end
+  rec.intervalMs = intervalMs
+
   local priority = tonumber(rec.priority) or 0
   if priority > 1000 then priority = 1000 end
   if priority < -1000 then priority = -1000 end
-  local enabled = rec.enabled == true and 1 or 0
-  local action = tostring(rec.action or ''):gsub('[\r\n]+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
-  if action ~= '' then
-    return name .. '=' .. tostring(intervalMs) .. ',' .. tostring(priority) .. ',' .. tostring(enabled) .. ',' .. action
+  rec.priority = priority
+
+  rec.enabled = rec.enabled == true
+
+  if rec.action ~= nil then
+    local act = tostring(rec.action or ''):gsub('[\r\n]+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
+    rec.action = (act ~= '') and act or nil
   end
-  return name .. '=' .. tostring(intervalMs) .. ',' .. tostring(priority) .. ',' .. tostring(enabled)
+  return rec
+end
+
+local function _taskEditorLineFrom(rec)
+  rec = _taskEditorNormalize(rec)
+  if not rec then return nil end
+  local enabled = rec.enabled and 1 or 0
+  local action = rec.action
+  if action then
+    return rec.name .. '=' .. tostring(rec.intervalMs) .. ',' .. tostring(rec.priority) .. ',' .. tostring(enabled) .. ',' .. action
+  end
+  return rec.name .. '=' .. tostring(rec.intervalMs) .. ',' .. tostring(rec.priority) .. ',' .. tostring(enabled)
 end
 
 local function _taskEditorParseLine(line)
@@ -896,19 +877,18 @@ local function _taskEditorParseLine(line)
   if not name or not rest then return nil end
   name = tostring(name):gsub('[\r\n]+', ' '):gsub('%s+', '_')
   if name == '' then return nil end
+
   local intervalMs, priority, enabled, action = rest:match('^(%-?%d+),(%-?%d+),(%-?%d+),?(.*)$')
   if not intervalMs then
     intervalMs, priority = rest:match('^(%-?%d+),(%-?%d+)$')
     enabled = '1'
   end
-  intervalMs = tonumber(intervalMs) or 1000
-  priority = tonumber(priority) or 0
-  local enabledFlag = tonumber(enabled) or 0
+
   local rec = {
     name = name,
-    intervalMs = intervalMs,
-    priority = priority,
-    enabled = enabledFlag == 1
+    intervalMs = tonumber(intervalMs) or 1000,
+    priority = tonumber(priority) or 0,
+    enabled = (tonumber(enabled) or 0) == 1
   }
   if action and tostring(action):gsub('%s+', '') ~= '' then
     rec.action = tostring(action):gsub('[\r\n]+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
@@ -916,30 +896,11 @@ local function _taskEditorParseLine(line)
   return _taskEditorNormalize(rec)
 end
 
-local function _taskEditorNormalize(rec)
-  if not rec then return nil end
-  rec.name = tostring(rec.name or ''):gsub('[\r\n]+', ' '):gsub('%s+', '_')
-  if rec.name == '' then return nil end
-  local intervalMs = tonumber(rec.intervalMs) or 1000
-  if intervalMs < 50 then intervalMs = 50 end
-  if intervalMs > 60000 then intervalMs = 60000 end
-  rec.intervalMs = intervalMs
-  local priority = tonumber(rec.priority) or 0
-  if priority > 1000 then priority = 1000 end
-  if priority < -1000 then priority = -1000 end
-  rec.priority = priority
-  rec.enabled = rec.enabled == true
-  if rec.action ~= nil then
-    local act = tostring(rec.action or ''):gsub('[\r\n]+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
-    rec.action = (act ~= '') and act or nil
-  end
-  return rec
-end
-
 function CTOmodule.taskEditor.load()
   local raw = settingsGetString(CTOmodule.taskEditor._key, '')
   CTOmodule.taskEditor.map = {}
   CTOmodule.taskEditor.order = {}
+
   for line in raw:gmatch('[^\r\n]+') do
     local rec = _taskEditorParseLine(line)
     if rec then
@@ -947,11 +908,16 @@ function CTOmodule.taskEditor.load()
       _taskEditorEnsureOrder(rec.name)
     end
   end
-  if #CTOmodule.taskEditor.order == 0 then
+
+  local n = #CTOmodule.taskEditor.order
+  if n == 0 then
     CTOmodule.taskEditor.index = 1
-  elseif CTOmodule.taskEditor.index > #CTOmodule.taskEditor.order then
-    CTOmodule.taskEditor.index = #CTOmodule.taskEditor.order
+  elseif CTOmodule.taskEditor.index > n then
+    CTOmodule.taskEditor.index = n
+  elseif CTOmodule.taskEditor.index < 1 then
+    CTOmodule.taskEditor.index = 1
   end
+
   return CTOmodule.taskEditor.map
 end
 
@@ -982,6 +948,7 @@ end
 function CTOmodule.taskEditor.upsert(key, opts)
   key = tostring(key or ''):gsub('[\r\n]+', ' '):gsub('%s+', '_')
   if key == '' then return false end
+
   local rec = CTOmodule.taskEditor.map[key] or { name = key }
   if opts then
     if opts.intervalMs ~= nil then rec.intervalMs = opts.intervalMs end
@@ -989,8 +956,10 @@ function CTOmodule.taskEditor.upsert(key, opts)
     if opts.enabled ~= nil then rec.enabled = opts.enabled end
     if opts.action ~= nil then rec.action = opts.action end
   end
+
   rec = _taskEditorNormalize(rec)
   if not rec then return false end
+
   CTOmodule.taskEditor.map[rec.name] = rec
   _taskEditorEnsureOrder(rec.name)
   return true
@@ -998,18 +967,93 @@ end
 
 function CTOmodule.taskEditor.remove(name)
   name = tostring(name or '')
-  -- idempotent remove
-  if not CTOmodule.taskEditor.map[name] then return true end
+  if not CTOmodule.taskEditor.map[name] then return true end -- idempotent
   CTOmodule.taskEditor.map[name] = nil
+
   local order = CTOmodule.taskEditor.order
   for i = #order, 1, -1 do
     if order[i] == name then table.remove(order, i) end
   end
-  if CTOmodule.taskEditor.index > #order then
-    CTOmodule.taskEditor.index = (#order > 0 and #order or 1)
+
+  local n = #order
+  if n == 0 then
+    CTOmodule.taskEditor.index = 1
+  elseif CTOmodule.taskEditor.index > n then
+    CTOmodule.taskEditor.index = n
   end
   return true
 end
+
+
+CTOmodule.taskEditor._applied = CTOmodule.taskEditor._applied or {}
+
+local function _taskEditorMakeRuntimeFn(actionName)
+  local act = tostring(actionName or ''):gsub('[\r\n]+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
+  if act == '' then
+    return function() end
+  end
+  return function()
+    if CTOmodule.actions and CTOmodule.actions.run then
+      CTOmodule.actions.run(act)
+    else
+      CTOmodule.log('task editor: actions not available')
+    end
+  end
+end
+
+function CTOmodule.taskEditor.applyToRuntime()
+  if not (CTOmodule.tasks and CTOmodule.tasks.register and CTOmodule.tasks.enable) then
+    CTOmodule.log('task editor: tasks API missing')
+    return false
+  end
+
+  local applied = CTOmodule.taskEditor._applied or {}
+  CTOmodule.taskEditor._applied = applied
+
+  local current = {}
+  for i = 1, #CTOmodule.taskEditor.order do
+    local name = CTOmodule.taskEditor.order[i]
+    local rec = CTOmodule.taskEditor.map[name]
+    if rec then
+      current[name] = true
+
+      local exists = CTOmodule.tasks.map and CTOmodule.tasks.map[name] ~= nil
+      if exists and not applied[name] then
+        CTOmodule.log('task editor: name conflicts with runtime task: ' .. name .. ' (skipped)')
+      else
+        local fn = _taskEditorMakeRuntimeFn(rec.action)
+        CTOmodule.tasks.register(name, fn, {
+          intervalMs = rec.intervalMs,
+          priority = rec.priority,
+          override = true
+        })
+        -- do NOT write tasksEnabled store; editor persists enabled state itself
+        CTOmodule.tasks.enable(name, rec.enabled, true)
+        applied[name] = true
+      end
+    end
+  end
+
+  -- remove runtime tasks that were previously created by the editor but no longer exist
+  for name, _ in pairs(applied) do
+    if not current[name] then
+      if CTOmodule.tasks and CTOmodule.tasks.unregister then
+        CTOmodule.tasks.unregister(name, true)
+      else
+        -- fallback: best-effort remove
+        if CTOmodule.tasks and CTOmodule.tasks.map then CTOmodule.tasks.map[name] = nil end
+      end
+      applied[name] = nil
+    end
+  end
+
+  if CTOmodule.tasks and CTOmodule.tasks._rebuildSorted then CTOmodule.tasks._rebuildSorted() end
+  return true
+end
+
+-- === MVP v0.7: Task Scheduler (small, safe, console-first) ===
+CTOmodule.tasks = CTOmodule.tasks or { map = {}, order = {} }
+CTOmodule._tasksRuntime = CTOmodule._tasksRuntime or { lastOnline = nil }
 
 local function _tasksEnsureOrder(name)
   local order = CTOmodule.tasks.order
@@ -1110,8 +1154,7 @@ local function _saveTasksConfig()
     if rec then
       local i = tonumber(rec.intervalMs) or 1000
       local p = tonumber(rec.priority) or 0
-      local m = (rec.muteLog == true) and 1 or 0
-      lines[#lines + 1] = tostring(name) .. '=' .. tostring(i) .. ',' .. tostring(p) .. ',' .. tostring(m)
+      lines[#lines + 1] = tostring(name) .. '=' .. tostring(i) .. ',' .. tostring(p)
     end
   end
   table.sort(lines)
@@ -1121,16 +1164,12 @@ end
 local function _loadTasksConfig()
   local raw = settingsGetString(MODULE_NAME .. '.tasksConfig', '')
   local cfg = {}
-  for line in raw:gmatch('[^\n]+') do
+  for line in raw:gmatch('[^\r\n]+') do
     local k, rest = line:match('^([^=]+)=(.+)$')
     if k and rest then
-      local i, p, m = rest:match('^(%d+),(%-?%d+),(%d)$')
-      if not i then
-        i, p = rest:match('^(%d+),(%-?%d+)$')
-        m = nil
-      end
+      local i, p = rest:match('^(%d+),(%-?%d+)$')
       if i and p then
-        cfg[tostring(k)] = { intervalMs = tonumber(i), priority = tonumber(p), muteLog = (m == '1') }
+        cfg[tostring(k)] = { intervalMs = tonumber(i), priority = tonumber(p) }
       end
     end
   end
@@ -1165,7 +1204,6 @@ function CTOmodule.tasks.applyConfig()
     if rec and c then
       if tonumber(c.intervalMs) then rec.intervalMs = tonumber(c.intervalMs) end
       if tonumber(c.priority) then rec.priority = tonumber(c.priority) end
-      if c.muteLog ~= nil then rec.muteLog = (c.muteLog == true) end
     end
   end
   CTOmodule.tasks._rebuildSorted()
@@ -1187,7 +1225,6 @@ function CTOmodule.tasks.setInterval(name, ms, dontSave)
   CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
   CTOmodule.tasks._cfg[name].intervalMs = v
   CTOmodule.tasks._cfg[name].priority = tonumber(rec.priority) or 0
-  CTOmodule.tasks._cfg[name].muteLog = (rec.muteLog == true)
   if not dontSave then _saveTasksConfig() end
   CTOmodule.log('task ' .. name .. ' intervalMs=' .. tostring(v))
   return true
@@ -1209,38 +1246,9 @@ function CTOmodule.tasks.setPriority(name, pr, dontSave)
   CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
   CTOmodule.tasks._cfg[name].intervalMs = tonumber(rec.intervalMs) or 1000
   CTOmodule.tasks._cfg[name].priority = v
-  CTOmodule.tasks._cfg[name].muteLog = (rec.muteLog == true)
   if not dontSave then _saveTasksConfig() end
   CTOmodule.log('task ' .. name .. ' priority=' .. tostring(v))
   return true
-end
-
-function CTOmodule.tasks.setMute(name, muted, dontSave)
-  name = tostring(name or ''):gsub('%s+', '_')
-  local rec = CTOmodule.tasks.map[name]
-  if not rec then
-    CTOmodule.log('task not found: ' .. name)
-    return false
-  end
-  rec.muteLog = muted and true or false
-  CTOmodule.tasks._cfg = CTOmodule.tasks._cfg or _loadTasksConfig()
-  CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
-  CTOmodule.tasks._cfg[name].intervalMs = tonumber(rec.intervalMs) or 1000
-  CTOmodule.tasks._cfg[name].priority = tonumber(rec.priority) or 0
-  CTOmodule.tasks._cfg[name].muteLog = (rec.muteLog == true)
-  if not dontSave then _saveTasksConfig() end
-  CTOmodule.log('task ' .. name .. ' muteLog=' .. tostring(rec.muteLog))
-  return true
-end
-
-function CTOmodule.tasks.toggleMute(name)
-  name = tostring(name or ''):gsub('%s+', '_')
-  local rec = CTOmodule.tasks.map[name]
-  if not rec then
-    CTOmodule.log('task not found: ' .. name)
-    return false
-  end
-  return CTOmodule.tasks.setMute(name, not rec.muteLog)
 end
 
 
@@ -1262,12 +1270,10 @@ function CTOmodule.tasks.register(name, fn, opts)
   if rec.intervalMs < 50 then rec.intervalMs = 50 end
   if rec.intervalMs > 60000 then rec.intervalMs = 60000 end
   rec.priority = tonumber(opts.priority) or rec.priority or 0
-  rec.muteLog = (opts.muteLog == true) or (rec.muteLog == true) or false
   local cfg = CTOmodule.tasks._cfg and CTOmodule.tasks._cfg[name]
   if cfg then
     if tonumber(cfg.intervalMs) then rec.intervalMs = tonumber(cfg.intervalMs) end
     if tonumber(cfg.priority) then rec.priority = tonumber(cfg.priority) end
-    if cfg.muteLog ~= nil then rec.muteLog = (cfg.muteLog == true) end
   end
   rec.enabled = (rec.enabled == true) and true or false
   rec.nextAt = rec.nextAt or 0
@@ -1301,7 +1307,7 @@ function CTOmodule.tasks.listEnabled()
   return out
 end
 
-function CTOmodule.tasks.enable(name, enabled, dontSave, silent)
+function CTOmodule.tasks.enable(name, enabled, dontSave)
   name = tostring(name or ''):gsub('%s+', '_')
   local rec = CTOmodule.tasks.map[name]
   if not rec then
@@ -1313,27 +1319,32 @@ function CTOmodule.tasks.enable(name, enabled, dontSave, silent)
   if not dontSave then
     _saveTasksEnabled()
   end
-  if not silent then
-    CTOmodule.log('task ' .. name .. ' enabled=' .. tostring(rec.enabled))
-  end
+  CTOmodule.log('task ' .. name .. ' enabled=' .. tostring(rec.enabled))
   return true
 end
 
-function CTOmodule.tasks.enableAll(enabled, dontSave)
-  local names = CTOmodule.tasks.list()
-  for i = 1, #names do
-    CTOmodule.tasks.enable(names[i], enabled, true, true)
+
+function CTOmodule.tasks.unregister(name, dontSave)
+  name = tostring(name or ''):gsub('%s+', '_')
+  if name == '' then return true end
+  if not CTOmodule.tasks.map[name] then return true end
+
+  CTOmodule.tasks.map[name] = nil
+  local order = CTOmodule.tasks.order
+  for i = #order, 1, -1 do
+    if order[i] == name then table.remove(order, i) end
   end
+  if CTOmodule.tasks._rebuildSorted then CTOmodule.tasks._rebuildSorted() end
+
   if not dontSave then
-    _saveTasksEnabled()
+    if _saveTasksEnabled then _saveTasksEnabled() end
+    if _saveTasksConfig then _saveTasksConfig() end
   end
-  CTOmodule.log('tasks ' .. (enabled and 'enabled' or 'disabled') .. ': all')
+
+  CTOmodule.log('task unregistered: ' .. name)
   return true
 end
 
-function CTOmodule.tasks.disableAll(dontSave)
-  return CTOmodule.tasks.enableAll(false, dontSave)
-end
 
 function CTOmodule.tasks.toggle(name)
   local rec = CTOmodule.tasks.map[tostring(name or ''):gsub('%s+', '_')]
@@ -1353,45 +1364,40 @@ function CTOmodule.tasks.runOnce(name)
   end
   local now = _nowMs()
   local ctx = _buildTaskCtx(now)
-  CTOmodule._inTask = name
   local ok, err = pcall(rec.fn, ctx)
-  CTOmodule._inTask = nil
   rec.runCount = (rec.runCount or 0) + 1
   if not ok then
     rec.errCount = (rec.errCount or 0) + 1
     rec.lastErr = tostring(err)
-    CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr, { force = true })
+    CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr)
     return false
   end
-  CTOmodule.log('task ran: ' .. name, { force = true })
+  CTOmodule.log('task ran: ' .. name)
   return true
 end
 
 function CTOmodule.tasks.runDue()
   local now = _nowMs()
   local ctx = _buildTaskCtx(now)
-  local order = CTOmodule.tasks._sorted or CTOmodule.tasks.order
-  for i = 1, #order do
-    local name = order[i]
+  for i = 1, #CTOmodule.tasks.order do
+    local name = CTOmodule.tasks.order[i]
     local rec = CTOmodule.tasks.map[name]
     if rec and rec.enabled then
       local dueAt = rec.nextAt or 0
       if now >= dueAt then
         rec.nextAt = now + (rec.intervalMs or 1000)
         rec.runCount = (rec.runCount or 0) + 1
-        CTOmodule._inTask = name
         local ok, err = pcall(rec.fn, ctx)
-        CTOmodule._inTask = nil
         if not ok then
           rec.errCount = (rec.errCount or 0) + 1
           rec.lastErr = tostring(err)
-          CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr, { force = true })
+          CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr)
+          -- mild backoff on error
           rec.nextAt = now + math.max(1000, rec.intervalMs or 1000)
         end
       end
     end
   end
-  CTOmodule._inTask = nil
 end
 
 function CTOmodule.tasks.loadEnabled()
@@ -1493,10 +1499,6 @@ CTOmodule.actions.register('tasks_list', function()
 end, { override = true })
 
 CTOmodule.actions.register('tasks_enable_demo', function()
-  if CTOmodule.tasks and CTOmodule.tasks.enableAll then
-    CTOmodule.tasks.enableAll(true)
-    return
-  end
   local names = CTOmodule.tasks.list()
   for i = 1, #names do
     CTOmodule.tasks.enable(names[i], true)
@@ -1505,25 +1507,16 @@ CTOmodule.actions.register('tasks_enable_demo', function()
 end, { override = true })
 
 CTOmodule.actions.register('tasks_disable_all', function()
-  if CTOmodule.tasks and CTOmodule.tasks.disableAll then
-    CTOmodule.tasks.disableAll()
-    return
-  end
   if not (CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.enable) then return end
   for name, _ in pairs(CTOmodule.tasks.map) do
     CTOmodule.tasks.enable(name, false, true)
   end
-  settingsSet(MODULE_NAME .. '.tasksEnabled', '')
+  if CTOmodule.tasks.loadEnabled then
+    -- resave empty set in canonical form
+    local raw = ''
+    settingsSet(MODULE_NAME .. '.tasksEnabled', raw)
+  end
   CTOmodule.log('tasks disabled: all')
-end, { override = true })
-
-CTOmodule.actions.register('tasks_ui_mute', function()
-  if not window then CTOmodule.log('tasks_ui_mute: UI not loaded') return end
-  if tasksUiToggleMuteSelected then tasksUiToggleMuteSelected() end
-end, { override = true })
-
-CTOmodule.actions.register('tasks_ui_mute_all', function()
-  CTOmodule.toggleMuteTaskLogs()
 end, { override = true })
 
 
@@ -1566,6 +1559,48 @@ CTOmodule.actions.register('tasks_ui_set_priority', function()
   if not window then CTOmodule.log('tasks_ui_set_priority: UI not loaded') return end
   tasksUiApplyPriorityFromUI()
 end, { override = true })
+
+  -- task editor
+  CTOmodule.actions.register('task_editor_list', function()
+    if not CTOmodule.taskEditor or not CTOmodule.taskEditor.list then
+      CTOmodule.log('task editor not ready')
+      return
+    end
+    local names = CTOmodule.taskEditor.list()
+    CTOmodule.log('task editor entries: ' .. (#names > 0 and table.concat(names, ', ') or '(none)'))
+  end)
+
+  CTOmodule.actions.register('print_task_editor_store', function()
+    if not CTOmodule.taskEditor then return end
+    local raw = settingsGetString(CTOmodule.taskEditor._key, '')
+    CTOmodule.log('taskEditor store:\n' .. (raw ~= '' and raw or '(empty)'))
+  end)
+
+  CTOmodule.actions.register('task_editor_ui_refresh', function()
+    if taskEditorUiRefresh then taskEditorUiRefresh() end
+  end)
+  CTOmodule.actions.register('task_editor_ui_prev', function()
+    if taskEditorUiNext then taskEditorUiNext(-1) end
+  end)
+  CTOmodule.actions.register('task_editor_ui_next', function()
+    if taskEditorUiNext then taskEditorUiNext(1) end
+  end)
+  CTOmodule.actions.register('task_editor_ui_save', function()
+    if taskEditorUiSaveFromUI then taskEditorUiSaveFromUI() end
+  end)
+  CTOmodule.actions.register('task_editor_ui_delete', function()
+    if taskEditorUiDeleteSelected then taskEditorUiDeleteSelected() end
+  
+  CTOmodule.actions.register('task_editor_apply', function()
+    if CTOmodule.taskEditor and CTOmodule.taskEditor.applyToRuntime then CTOmodule.taskEditor.applyToRuntime() end
+    if tasksUiRefresh then tasksUiRefresh() end
+    if taskEditorUiRefresh then taskEditorUiRefresh() end
+  end)
+  CTOmodule.actions.register('task_editor_ui_apply', function()
+    if taskEditorUiApply then taskEditorUiApply() end
+  end)
+
+end)
 
 end
 
@@ -1697,8 +1732,7 @@ tasksUiRefresh = function()
       local enabled = (rec and rec.enabled) and 'ON' or 'off'
       local intervalMs = rec and rec.intervalMs or 0
       local pr = rec and rec.priority or 0
-      local mute = (rec and rec.muteLog) and ' mute' or ''
-      lines[#lines + 1] = prefix .. name .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr) .. mute
+      lines[#lines + 1] = prefix .. name .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr)
     end
     if #lines == 0 then
       lines[1] = '(no tasks)'
@@ -1709,28 +1743,10 @@ tasksUiRefresh = function()
   local sel = list[t.idx]
   local selLabel = getChild('tasksSelectedLabel')
   if selLabel then
-    if sel and rec then
-      local enabled = rec.enabled and 'ON' or 'off'
-      local intervalMs = rec.intervalMs or 0
-      local pr = rec.priority or 0
-      local mute = rec.muteLog and ' mute' or ''
-      uiSetText(selLabel, 'Task: ' .. sel .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr) .. mute)
-    else
-      uiSetText(selLabel, 'Task: (none)')
-    end
+    uiSetText(selLabel, sel and ('Task: ' .. sel) or 'Task: (none)')
   end
 
   local rec = sel and CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.map[sel] or nil
-
-  local btnMute = getChild('btnTasksMute')
-  if btnMute and btnMute.setText then
-    btnMute:setText(rec and rec.muteLog and 'Unmute' or 'Mute')
-  end
-  local btnMuteAll = getChild('btnTasksMuteAll')
-  if btnMuteAll and btnMuteAll.setText then
-    btnMuteAll:setText(CTOmodule._taskLogMuteGlobal and 'UnmuteAll' or 'MuteAll')
-  end
-
   local intervalEdit = getChild('taskIntervalEdit')
   if intervalEdit and intervalEdit.setText then
     intervalEdit:setText(rec and tostring(rec.intervalMs or '') or '')
@@ -1773,38 +1789,6 @@ tasksUiToggleSelected = function()
   tasksUiRefresh()
 end
 
-tasksUiToggleMuteSelected = function()
-  local name = tasksUiSelectedName()
-  if not name then return end
-  if CTOmodule.tasks and CTOmodule.tasks.toggleMute then
-    CTOmodule.tasks.toggleMute(name)
-  end
-  tasksUiRefresh()
-end
-
-tasksUiToggleMuteAll = function()
-  if CTOmodule.toggleMuteTaskLogs then
-    CTOmodule.toggleMuteTaskLogs()
-  end
-  tasksUiRefresh()
-end
-
-tasksUiEnableAll = function()
-  if CTOmodule.tasks and CTOmodule.tasks.enableAll then
-    CTOmodule.tasks.enableAll(true)
-  end
-  tasksUiRefresh()
-end
-
-tasksUiDisableAll = function()
-  if CTOmodule.tasks and CTOmodule.tasks.disableAll then
-    CTOmodule.tasks.disableAll()
-  elseif CTOmodule.tasks and CTOmodule.tasks.enableAll then
-    CTOmodule.tasks.enableAll(false)
-  end
-  tasksUiRefresh()
-end
-
 tasksUiRunOnceSelected = function()
   local name = tasksUiSelectedName()
   if not name then return end
@@ -1836,18 +1820,21 @@ tasksUiApplyPriorityFromUI = function()
   tasksUiRefresh()
 end
 
+
+-- === Task Editor UI (v0.9) ===
 taskEditorUiRefresh = function()
   local t = CTOmodule._taskEditorUi
   t.idx = CTOmodule.taskEditor and CTOmodule.taskEditor.index or t.idx
   local names = CTOmodule.taskEditor and CTOmodule.taskEditor.list and CTOmodule.taskEditor.list() or {}
   t.list = names
+
   if #names == 0 then
     t.idx = 1
   else
     if t.idx < 1 then t.idx = 1 end
     if t.idx > #names then t.idx = #names end
   end
-  CTOmodule.taskEditor.index = t.idx
+  if CTOmodule.taskEditor then CTOmodule.taskEditor.index = t.idx end
 
   local listBox = getChild('taskEditorListBox')
   if listBox and listBox.setText then
@@ -1861,14 +1848,13 @@ taskEditorUiRefresh = function()
       local pr = rec and rec.priority or 0
       lines[#lines + 1] = prefix .. name .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr)
     end
-    if #lines == 0 then
-      lines[1] = '(no tasks)'
-    end
+    if #lines == 0 then lines[1] = '(no tasks)' end
     listBox:setText(table.concat(lines, '\n'))
   end
 
   local sel = names[t.idx]
   local rec = sel and CTOmodule.taskEditor and CTOmodule.taskEditor.map and CTOmodule.taskEditor.map[sel] or nil
+
   local nameEdit = getChild('taskEditorNameEdit')
   if nameEdit and nameEdit.setText then nameEdit:setText(rec and rec.name or '') end
   local actionEdit = getChild('taskEditorActionEdit')
@@ -1877,6 +1863,7 @@ taskEditorUiRefresh = function()
   if intervalEdit and intervalEdit.setText then intervalEdit:setText(rec and tostring(rec.intervalMs or '') or '') end
   local prEdit = getChild('taskEditorPriorityEdit')
   if prEdit and prEdit.setText then prEdit:setText(rec and tostring(rec.priority or '') or '') end
+
   local enabledCheck = getChild('taskEditorEnabledCheck')
   if enabledCheck and enabledCheck.setChecked then
     enabledCheck:setChecked(rec and rec.enabled or false)
@@ -1885,19 +1872,15 @@ end
 
 taskEditorUiNext = function(delta)
   local t = CTOmodule._taskEditorUi
-  if #t.list == 0 then
+  if not t.list or #t.list == 0 then
     taskEditorUiRefresh()
     return
   end
-  t.idx = (t.idx or 1) + delta
+  t.idx = (t.idx or 1) + (delta or 0)
   if t.idx < 1 then t.idx = 1 end
   if t.idx > #t.list then t.idx = #t.list end
-  CTOmodule.taskEditor.index = t.idx
+  if CTOmodule.taskEditor then CTOmodule.taskEditor.index = t.idx end
   taskEditorUiRefresh()
-end
-
-taskEditorUiPrev = function()
-  taskEditorUiNext(-1)
 end
 
 taskEditorUiSaveFromUI = function()
@@ -1906,40 +1889,57 @@ taskEditorUiSaveFromUI = function()
     CTOmodule.log('task editor: name required')
     return
   end
+
   local intervalMs = tonumber(getWidgetText(getChild('taskEditorIntervalEdit'))) or 1000
   local priority = tonumber(getWidgetText(getChild('taskEditorPriorityEdit'))) or 0
   local action = tostring(getWidgetText(getChild('taskEditorActionEdit')) or '')
+
   local enabled = false
   local enabledCheck = getChild('taskEditorEnabledCheck')
-  if enabledCheck then
-    if enabledCheck.isChecked then
-      local ok, v = safe(function() return enabledCheck:isChecked() end)
-      if ok then enabled = v and true or false end
-    elseif enabledCheck.getChecked then
-      local ok, v = safe(function() return enabledCheck:getChecked() end)
-      if ok then enabled = v and true or false end
-    end
+  if enabledCheck and enabledCheck.isChecked then
+    local ok, v = safe(function() return enabledCheck:isChecked() end)
+    if ok then enabled = v and true or false end
+  elseif enabledCheck and enabledCheck.getChecked then
+    local ok, v = safe(function() return enabledCheck:getChecked() end)
+    if ok then enabled = v and true or false end
   end
-  local ok = CTOmodule.taskEditor.upsert(name, {
-    intervalMs = intervalMs,
-    priority = priority,
-    enabled = enabled,
-    action = action
-  })
-  CTOmodule.taskEditor.save()
-  CTOmodule.log('task editor: saved ' .. name)
+
+  if CTOmodule.taskEditor and CTOmodule.taskEditor.upsert then
+    CTOmodule.taskEditor.upsert(name, {
+      intervalMs = intervalMs,
+      priority = priority,
+      enabled = enabled,
+      action = action
+    })
+    CTOmodule.taskEditor.save()
+  end
+
   taskEditorUiRefresh()
 end
 
 taskEditorUiDeleteSelected = function()
   local t = CTOmodule._taskEditorUi
-  local name = t.list[t.idx]
+  local name = t.list and t.list[t.idx] or nil
   if not name then return end
-  CTOmodule.taskEditor.remove(name)
-  CTOmodule.taskEditor.save()
-  CTOmodule.log('task editor: deleted ' .. name)
+  if CTOmodule.taskEditor and CTOmodule.taskEditor.remove then
+    CTOmodule.taskEditor.remove(name)
+    CTOmodule.taskEditor.save()
+  end
   taskEditorUiRefresh()
 end
+
+
+taskEditorUiApply = function()
+  if CTOmodule.taskEditor and CTOmodule.taskEditor.applyToRuntime then
+    CTOmodule.taskEditor.applyToRuntime()
+    if tasksUiRefresh then tasksUiRefresh() end
+    if taskEditorUiRefresh then taskEditorUiRefresh() end
+    CTOmodule.log('task editor: applied to runtime')
+  end
+end
+
+
+
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
   if enabledCheck then
@@ -2169,6 +2169,7 @@ local btnTasksRefresh = getChild('btnTasksRefresh')
 if btnTasksRefresh then
   btnTasksRefresh.onClick = function()
     tasksUiRefresh()
+taskEditorUiRefresh()
   end
 end
 
@@ -2200,34 +2201,6 @@ if btnTasksRunOnce then
   end
 end
 
-local btnTasksEnableAll = getChild('btnTasksEnableAll')
-if btnTasksEnableAll then
-  btnTasksEnableAll.onClick = function()
-    tasksUiEnableAll()
-  end
-end
-
-local btnTasksDisableAll = getChild('btnTasksDisableAll')
-if btnTasksDisableAll then
-  btnTasksDisableAll.onClick = function()
-    tasksUiDisableAll()
-  end
-end
-
-local btnTasksMute = getChild('btnTasksMute')
-if btnTasksMute then
-  btnTasksMute.onClick = function()
-    tasksUiToggleMuteSelected()
-  end
-end
-
-local btnTasksMuteAll = getChild('btnTasksMuteAll')
-if btnTasksMuteAll then
-  btnTasksMuteAll.onClick = function()
-    tasksUiToggleMuteAll()
-  end
-end
-
 local btnTaskSetInterval = getChild('btnTaskSetInterval')
 if btnTaskSetInterval then
   btnTaskSetInterval.onClick = function()
@@ -2242,11 +2215,12 @@ if btnTaskSetPriority then
   end
 end
 
--- Task Editor UI
+
+-- task editor ui
 local btnTaskEditorPrev = getChild('btnTaskEditorPrev')
 if btnTaskEditorPrev then
   btnTaskEditorPrev.onClick = function()
-    if taskEditorUiPrev then taskEditorUiPrev() end
+    taskEditorUiNext(-1)
   end
 end
 
@@ -2271,19 +2245,26 @@ if btnTaskEditorDelete then
   end
 end
 
+local btnTaskEditorApply = getChild('btnTaskEditorApply')
+if btnTaskEditorApply then
+  btnTaskEditorApply.onClick = function()
+    if taskEditorUiApply then taskEditorUiApply() end
+  end
+end
+
+
 tasksUiRefresh()
-taskEditorUiRefresh()
 
 updateStatus()
 
--- render current log into UI
-local logBox = getChild('logBox')
-if logBox then
-  uiSetText(logBox, logRender())
-  if type(logBox.moveCursorToEnd) == 'function' then
-    logBox:moveCursorToEnd()
+  -- render current log into UI
+  local logBox = getChild('logBox')
+  if logBox then
+    uiSetText(logBox, logRender())
+    if type(logBox.moveCursorToEnd) == 'function' then
+      logBox:moveCursorToEnd()
+    end
   end
-end
 end
 
 function CTOmodule.init()
@@ -2309,11 +2290,10 @@ if cfg and cfg.tickIntervalMs then
   CTOmodule._tick.intervalMs = cfg.tickIntervalMs
 end
 
--- persisted global task-log mute
-CTOmodule._taskLogMuteGlobal = settingsGetBool(MODULE_NAME .. '.muteTaskLogs', CTOmodule._taskLogMuteGlobal == true)
-
-
   -- UI (module-relative path)
+  -- task editor: load persisted entries early (before UI refresh)
+  if CTOmodule.taskEditor and CTOmodule.taskEditor.load then CTOmodule.taskEditor.load() end
+
   window = g_ui.loadUI('ui/main.otui', rootWidget)
   if not window then
     print('[' .. MODULE_NAME .. '] ERROR: failed to load UI: ui/main.otui')
@@ -2340,36 +2320,38 @@ CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', re
   local _alist = CTOmodule.actions.list(); CTOmodule.log('actions ready: ' .. (#_alist > 0 and table.concat(_alist, ', ') or '(none)'))
 
 
-  -- ensure default tasks are registered (safe on reload/hardReload)
-  if CTOmodule.tasks and CTOmodule.tasks.applyConfig then
-    CTOmodule.tasks.applyConfig()
-  end
-  if CTOmodule.tasks and CTOmodule.tasks.loadEnabled then
-    CTOmodule.tasks.loadEnabled()
-  end
-  if CTOmodule.taskEditor and CTOmodule.taskEditor.load then
-    CTOmodule.taskEditor.load()
-  end
-  if CTOmodule.tasks and CTOmodule.tasks.list then
-    local _tlist = CTOmodule.tasks.list()
-    CTOmodule.log('tasks ready: ' .. (#_tlist > 0 and table.concat(_tlist, ', ') or '(none)'))
-  end
-  if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
-    local _ten = CTOmodule.tasks.listEnabled()
-    CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
-  end
+-- ensure default tasks are registered (safe on reload/hardReload)
+if CTOmodule.tasks and CTOmodule.tasks.applyConfig then
+  CTOmodule.tasks.applyConfig()
+end
+if CTOmodule.tasks and CTOmodule.tasks.loadEnabled then
+  CTOmodule.tasks.loadEnabled()
+end
+if CTOmodule.taskEditor and CTOmodule.taskEditor.applyToRuntime then
+  CTOmodule.taskEditor.applyToRuntime()
+end
+
+if CTOmodule.tasks and CTOmodule.tasks.list then
+  local _tlist = CTOmodule.tasks.list()
+  CTOmodule.log('tasks ready: ' .. (#_tlist > 0 and table.concat(_tlist, ', ') or '(none)'))
+end
+if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
+  local _ten = CTOmodule.tasks.listEnabled()
+  CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
+end
+
   if CTOmodule.taskEditor and CTOmodule.taskEditor.list then
     local _telist = CTOmodule.taskEditor.list()
     CTOmodule.log('task editor entries: ' .. (#_telist > 0 and table.concat(_telist, ', ') or '(none)'))
   end
 
-  -- restore persisted window + tick state only after UI and binds are ready
-  restoreWindowState()
-  restoreTickState(cfg)
+-- restore persisted window + tick state only after UI and binds are ready
+restoreWindowState()
+restoreTickState(cfg)
 
-  if cfg and cfg.enabledByDefault == false then
-    settingsSet(MODULE_NAME .. '.enabled', false)
-  end
+if cfg and cfg.enabledByDefault == false then
+  settingsSet(MODULE_NAME .. '.enabled', false)
+end
 end
 
 function CTOmodule.terminate()

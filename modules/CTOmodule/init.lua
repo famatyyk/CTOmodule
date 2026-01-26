@@ -14,5 +14,3 @@ function terminate()
     CTOmodule.terminate()
   end
 end
-
-return CTOmodule
