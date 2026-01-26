@@ -155,6 +155,7 @@ local tasksUiApplyIntervalFromUI
 local tasksUiApplyPriorityFromUI
 local taskEditorUiRefresh
 local taskEditorUiNext
+local taskEditorUiPrev
 local taskEditorUiSaveFromUI
 local taskEditorUiDeleteSelected
 
@@ -1895,6 +1896,10 @@ taskEditorUiNext = function(delta)
   taskEditorUiRefresh()
 end
 
+taskEditorUiPrev = function()
+  taskEditorUiNext(-1)
+end
+
 taskEditorUiSaveFromUI = function()
   local name = tostring(getWidgetText(getChild('taskEditorNameEdit')) or ''):gsub('%s+', '_')
   if name == '' then
@@ -1922,6 +1927,7 @@ taskEditorUiSaveFromUI = function()
     action = action
   })
   CTOmodule.taskEditor.save()
+  CTOmodule.log('task editor: saved ' .. name)
   taskEditorUiRefresh()
 end
 
@@ -1931,6 +1937,7 @@ taskEditorUiDeleteSelected = function()
   if not name then return end
   CTOmodule.taskEditor.remove(name)
   CTOmodule.taskEditor.save()
+  CTOmodule.log('task editor: deleted ' .. name)
   taskEditorUiRefresh()
 end
 local function wireUi()
@@ -2239,7 +2246,7 @@ end
 local btnTaskEditorPrev = getChild('btnTaskEditorPrev')
 if btnTaskEditorPrev then
   btnTaskEditorPrev.onClick = function()
-    taskEditorUiNext(-1)
+    if taskEditorUiPrev then taskEditorUiPrev() end
   end
 end
 
