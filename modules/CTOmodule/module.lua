@@ -146,6 +146,15 @@ local hotkeyFn = nil
 local tickHotkeyFn = nil
 local resetHotkeyFn = nil
 
+-- Forward declarations for Tasks UI helpers (must exist before registerDefaultActions).
+local tasksUiRefresh
+local tasksUiNext
+local tasksUiToggleSelected
+local tasksUiRunOnceSelected
+local tasksUiApplyIntervalFromUI
+local tasksUiApplyPriorityFromUI
+
+
 -- keep log across reloads
 CTOmodule._log = CTOmodule._log or { buf = {}, max = 200 }
 CTOmodule.config = CTOmodule.config or {}
@@ -777,6 +786,7 @@ function CTOmodule.toggle()
     window:hide()
   else
     window:show()
+    tasksUiRefresh()
     if window.raise then window:raise() end
     if window.focus then window:focus() end
   end
@@ -1257,6 +1267,42 @@ CTOmodule.actions.register('print_tasks_store', function()
   local raw = settingsGetString(MODULE_NAME .. '.tasksEnabled', '')
   CTOmodule.log('persisted tasksEnabled=' .. (raw ~= '' and raw:gsub('\n', ', ') or '(empty)'))
 end, { override = true })
+-- Tasks UI actions (console-driven UI control)
+CTOmodule.actions.register('tasks_ui_refresh', function()
+  if not window then CTOmodule.log('tasks_ui_refresh: UI not loaded') return end
+  tasksUiRefresh()
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_prev', function()
+  if not window then CTOmodule.log('tasks_ui_prev: UI not loaded') return end
+  tasksUiNext(-1)
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_next', function()
+  if not window then CTOmodule.log('tasks_ui_next: UI not loaded') return end
+  tasksUiNext(1)
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_toggle', function()
+  if not window then CTOmodule.log('tasks_ui_toggle: UI not loaded') return end
+  tasksUiToggleSelected()
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_run_once', function()
+  if not window then CTOmodule.log('tasks_ui_run_once: UI not loaded') return end
+  tasksUiRunOnceSelected()
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_set_interval', function()
+  if not window then CTOmodule.log('tasks_ui_set_interval: UI not loaded') return end
+  tasksUiApplyIntervalFromUI()
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_set_priority', function()
+  if not window then CTOmodule.log('tasks_ui_set_priority: UI not loaded') return end
+  tasksUiApplyPriorityFromUI()
+end, { override = true })
+
 end
 
 -- Preload defaults so actions exist right after dofile('module.lua')
@@ -1352,7 +1398,7 @@ end
 
 
 
-local function tasksUiRefresh()
+tasksUiRefresh = function()
   local t = CTOmodule._tasksUi
   local filter = tostring(t.filter or ''):lower()
   local all = CTOmodule.tasks and CTOmodule.tasks._sorted
@@ -1418,7 +1464,7 @@ local function tasksUiSetFilter(s)
   tasksUiRefresh()
 end
 
-local function tasksUiNext(delta)
+tasksUiNext = function(delta)
   local t = CTOmodule._tasksUi
   if #t.list == 0 then
     tasksUiRefresh()
@@ -1435,7 +1481,7 @@ local function tasksUiSelectedName()
   return t.list[t.idx]
 end
 
-local function tasksUiToggleSelected()
+tasksUiToggleSelected = function()
   local name = tasksUiSelectedName()
   if not name then return end
   if CTOmodule.tasks and CTOmodule.tasks.toggle then
@@ -1444,7 +1490,7 @@ local function tasksUiToggleSelected()
   tasksUiRefresh()
 end
 
-local function tasksUiRunOnceSelected()
+tasksUiRunOnceSelected = function()
   local name = tasksUiSelectedName()
   if not name then return end
   if CTOmodule.tasks and CTOmodule.tasks.runOnce then
@@ -1453,7 +1499,7 @@ local function tasksUiRunOnceSelected()
   tasksUiRefresh()
 end
 
-local function tasksUiApplyIntervalFromUI()
+tasksUiApplyIntervalFromUI = function()
   local name = tasksUiSelectedName()
   if not name then return end
   local w = getChild('taskIntervalEdit')
@@ -1464,7 +1510,7 @@ local function tasksUiApplyIntervalFromUI()
   tasksUiRefresh()
 end
 
-local function tasksUiApplyPriorityFromUI()
+tasksUiApplyPriorityFromUI = function()
   local name = tasksUiSelectedName()
   if not name then return end
   local w = getChild('taskPriorityEdit')
