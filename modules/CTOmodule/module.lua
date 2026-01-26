@@ -818,6 +818,10 @@ local function _tasksEnsureOrder(name)
   order[#order + 1] = name
 end
 
+function CTOmodule.tasks._get(name)
+  return CTOmodule.tasks.map[tostring(name or '')]
+end
+
 local function _nowMs()
   if g_clock then
     if type(g_clock.millis) == 'function' then
@@ -1090,31 +1094,32 @@ local function registerDefaultActions()
   end, { override = true })
 
 CTOmodule.actions.register('tasks_list', function()
-  if not (CTOmodule.tasks and CTOmodule.tasks.list) then
-    CTOmodule.log('tasks: (not available)')
-    return
-  end
   local names = CTOmodule.tasks.list()
   if #names == 0 then
     CTOmodule.log('tasks: (none)')
     return
   end
   local lines = {}
+  lines[#lines + 1] = 'tasks:'
   for i = 1, #names do
     local name = names[i]
-    local rec = CTOmodule.tasks.map and CTOmodule.tasks.map[name] or nil
-    local on = rec and rec.enabled and true or false
-    local ms = rec and rec.intervalMs or nil
-    lines[#lines + 1] = tostring(name) .. ' enabled=' .. tostring(on) .. ' intervalMs=' .. tostring(ms)
+    local t = CTOmodule.tasks.map[name]
+    if t then
+      local enabled = t.enabled and 'true' or 'false'
+      local intervalMs = t.intervalMs or 0
+      local pr = t.priority or 0
+      lines[#lines + 1] = name .. ' enabled=' .. enabled .. ' intervalMs=' .. tostring(intervalMs) .. ' priority=' .. tostring(pr)
+    end
   end
-  CTOmodule.log('tasks:\n' .. table.concat(lines, '\n'))
+  CTOmodule.log(table.concat(lines, '\n'))
 end, { override = true })
 
 CTOmodule.actions.register('tasks_enable_demo', function()
-  if CTOmodule.tasks and CTOmodule.tasks.enable then
-    CTOmodule.tasks.enable('online_state', true)
-    CTOmodule.tasks.enable('vitals', true)
+  local names = CTOmodule.tasks.list()
+  for i = 1, #names do
+    CTOmodule.tasks.enable(names[i], true)
   end
+  CTOmodule.log('tasks enabled: ' .. (#names > 0 and table.concat(names, ', ') or '(none)'))
 end, { override = true })
 
 CTOmodule.actions.register('tasks_disable_all', function()
@@ -1131,6 +1136,10 @@ CTOmodule.actions.register('tasks_disable_all', function()
 end, { override = true })
 
 
+CTOmodule.actions.register('print_tasks_store', function()
+  local raw = settingsGetString(MODULE_NAME .. '.tasksEnabled', '')
+  CTOmodule.log('persisted tasksEnabled=' .. (raw ~= '' and raw:gsub('\n', ', ') or '(empty)'))
+end, { override = true })
 end
 
 -- Preload defaults so actions exist right after dofile('module.lua')
