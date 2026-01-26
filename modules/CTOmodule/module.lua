@@ -1935,10 +1935,8 @@ taskEditorUiDeleteSelected = function()
   if not name then return end
   CTOmodule.taskEditor.remove(name)
   CTOmodule.taskEditor.save()
-  if t.idx > #t.list then t.idx = (#t.list > 0 and #t.list or 1) end
   taskEditorUiRefresh()
 end
-
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
   if enabledCheck then
