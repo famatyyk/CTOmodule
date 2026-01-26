@@ -990,6 +990,9 @@ function CTOmodule.taskEditor.upsert(name, opts)
   end
   rec = _taskEditorNormalize(rec)
   if not rec then return false end
+  if rec.name ~= key then
+    CTOmodule.taskEditor.remove(key)
+  end
   CTOmodule.taskEditor.map[rec.name] = rec
   _taskEditorEnsureOrder(rec.name)
   return true
@@ -1900,8 +1903,6 @@ taskEditorUiSaveFromUI = function()
     CTOmodule.log('task editor: name required')
     return
   end
-  local current = CTOmodule._taskEditorUi.list[CTOmodule._taskEditorUi.idx]
-  local prev = current and CTOmodule.taskEditor and CTOmodule.taskEditor.map and CTOmodule.taskEditor.map[current] or nil
   local intervalMs = tonumber(getWidgetText(getChild('taskEditorIntervalEdit'))) or 1000
   local priority = tonumber(getWidgetText(getChild('taskEditorPriorityEdit'))) or 0
   local action = tostring(getWidgetText(getChild('taskEditorActionEdit')) or '')
@@ -1922,9 +1923,6 @@ taskEditorUiSaveFromUI = function()
     enabled = enabled,
     action = action
   })
-  if ok and prev and prev.name ~= name then
-    CTOmodule.taskEditor.remove(prev.name)
-  end
   CTOmodule.taskEditor.save()
   taskEditorUiRefresh()
 end
@@ -2232,55 +2230,55 @@ if btnTaskSetInterval then
   end
 end
 
-  local btnTaskSetPriority = getChild('btnTaskSetPriority')
-  if btnTaskSetPriority then
-    btnTaskSetPriority.onClick = function()
-      tasksUiApplyPriorityFromUI()
-    end
+local btnTaskSetPriority = getChild('btnTaskSetPriority')
+if btnTaskSetPriority then
+  btnTaskSetPriority.onClick = function()
+    tasksUiApplyPriorityFromUI()
   end
+end
 
-  -- Task Editor UI
-  local btnTaskEditorPrev = getChild('btnTaskEditorPrev')
-  if btnTaskEditorPrev then
-    btnTaskEditorPrev.onClick = function()
-      taskEditorUiNext(-1)
-    end
+-- Task Editor UI
+local btnTaskEditorPrev = getChild('btnTaskEditorPrev')
+if btnTaskEditorPrev then
+  btnTaskEditorPrev.onClick = function()
+    taskEditorUiNext(-1)
   end
+end
 
-  local btnTaskEditorNext = getChild('btnTaskEditorNext')
-  if btnTaskEditorNext then
-    btnTaskEditorNext.onClick = function()
-      taskEditorUiNext(1)
-    end
+local btnTaskEditorNext = getChild('btnTaskEditorNext')
+if btnTaskEditorNext then
+  btnTaskEditorNext.onClick = function()
+    taskEditorUiNext(1)
   end
+end
 
-  local btnTaskEditorSave = getChild('btnTaskEditorSave')
-  if btnTaskEditorSave then
-    btnTaskEditorSave.onClick = function()
-      taskEditorUiSaveFromUI()
-    end
+local btnTaskEditorSave = getChild('btnTaskEditorSave')
+if btnTaskEditorSave then
+  btnTaskEditorSave.onClick = function()
+    taskEditorUiSaveFromUI()
   end
+end
 
-  local btnTaskEditorDelete = getChild('btnTaskEditorDelete')
-  if btnTaskEditorDelete then
-    btnTaskEditorDelete.onClick = function()
-      taskEditorUiDeleteSelected()
-    end
+local btnTaskEditorDelete = getChild('btnTaskEditorDelete')
+if btnTaskEditorDelete then
+  btnTaskEditorDelete.onClick = function()
+    taskEditorUiDeleteSelected()
   end
+end
 
-  tasksUiRefresh()
-  taskEditorUiRefresh()
+tasksUiRefresh()
+taskEditorUiRefresh()
 
-  updateStatus()
+updateStatus()
 
-  -- render current log into UI
-  local logBox = getChild('logBox')
-  if logBox then
-    uiSetText(logBox, logRender())
-    if type(logBox.moveCursorToEnd) == 'function' then
-      logBox:moveCursorToEnd()
-    end
+-- render current log into UI
+local logBox = getChild('logBox')
+if logBox then
+  uiSetText(logBox, logRender())
+  if type(logBox.moveCursorToEnd) == 'function' then
+    logBox:moveCursorToEnd()
   end
+end
 end
 
 function CTOmodule.init()
@@ -2347,26 +2345,26 @@ CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', re
   if CTOmodule.taskEditor and CTOmodule.taskEditor.load then
     CTOmodule.taskEditor.load()
   end
-if CTOmodule.tasks and CTOmodule.tasks.list then
-  local _tlist = CTOmodule.tasks.list()
-  CTOmodule.log('tasks ready: ' .. (#_tlist > 0 and table.concat(_tlist, ', ') or '(none)'))
-end
-if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
-  local _ten = CTOmodule.tasks.listEnabled()
-  CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
-end
-if CTOmodule.taskEditor and CTOmodule.taskEditor.list then
-  local _telist = CTOmodule.taskEditor.list()
-  CTOmodule.log('task editor entries: ' .. (#_telist > 0 and table.concat(_telist, ', ') or '(none)'))
-end
+  if CTOmodule.tasks and CTOmodule.tasks.list then
+    local _tlist = CTOmodule.tasks.list()
+    CTOmodule.log('tasks ready: ' .. (#_tlist > 0 and table.concat(_tlist, ', ') or '(none)'))
+  end
+  if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
+    local _ten = CTOmodule.tasks.listEnabled()
+    CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
+  end
+  if CTOmodule.taskEditor and CTOmodule.taskEditor.list then
+    local _telist = CTOmodule.taskEditor.list()
+    CTOmodule.log('task editor entries: ' .. (#_telist > 0 and table.concat(_telist, ', ') or '(none)'))
+  end
 
--- restore persisted window + tick state only after UI and binds are ready
-restoreWindowState()
-restoreTickState(cfg)
+  -- restore persisted window + tick state only after UI and binds are ready
+  restoreWindowState()
+  restoreTickState(cfg)
 
-if cfg and cfg.enabledByDefault == false then
-  settingsSet(MODULE_NAME .. '.enabled', false)
-end
+  if cfg and cfg.enabledByDefault == false then
+    settingsSet(MODULE_NAME .. '.enabled', false)
+  end
 end
 
 function CTOmodule.terminate()
