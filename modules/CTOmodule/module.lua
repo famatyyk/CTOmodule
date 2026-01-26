@@ -16,6 +16,56 @@ local resetHotkeyFn = nil
 CTOmodule._log = CTOmodule._log or { buf = {}, max = 200 }
 CTOmodule.config = CTOmodule.config or {}
 
+CTOmodule.actions = CTOmodule.actions or { map = {}, order = {} }
+
+local function actionsEnsureOrder(name)
+  local order = CTOmodule.actions.order
+  for i = 1, #order do
+    if order[i] == name then return end
+  end
+  order[#order + 1] = name
+end
+
+function CTOmodule.actions.register(name, fn, opts)
+  name = tostring(name or ''):gsub('%s+', '_')
+  if name == '' then return false, 'empty name' end
+  if type(fn) ~= 'function' then return false, 'fn must be function' end
+
+  opts = opts or {}
+  if CTOmodule.actions.map[name] ~= nil and not opts.override then
+    return false, 'already registered'
+  end
+
+  CTOmodule.actions.map[name] = { fn = fn, opts = opts }
+  actionsEnsureOrder(name)
+  return true
+end
+
+function CTOmodule.actions.list()
+  local out = {}
+  for i = 1, #CTOmodule.actions.order do
+    out[#out + 1] = CTOmodule.actions.order[i]
+  end
+  return out
+end
+
+function CTOmodule.actions.run(name, ctx)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local a = CTOmodule.actions.map[name]
+  if not a then
+    CTOmodule.log('action not found: ' .. name)
+    return false
+  end
+
+  local ok, err = pcall(a.fn, ctx or {})
+  if not ok then
+    CTOmodule.log('action error: ' .. name .. ' -> ' .. tostring(err))
+    return false
+  end
+  return true
+end
+
+
 CTOmodule._tick = CTOmodule._tick or { running = false, intervalMs = 500, event = nil, tickCount = 0 }
 
 
@@ -83,6 +133,23 @@ end
 local function uiSetText(widget, text)
   if not widget then return end
   if type(widget.setText) == 'function' then widget:setText(text); return end
+end
+
+local function getWidgetText(w)
+  if not w then return '' end
+  if w.getText then
+    local ok, v = safe(function() return w:getText() end)
+    if ok and v ~= nil then return tostring(v) end
+  end
+  if w.getPlainText then
+    local ok, v = safe(function() return w:getPlainText() end)
+    if ok and v ~= nil then return tostring(v) end
+  end
+  if w.getDisplayedText then
+    local ok, v = safe(function() return w:getDisplayedText() end)
+    if ok and v ~= nil then return tostring(v) end
+  end
+  return ''
 end
 
 local function saveWindowState()
@@ -456,6 +523,32 @@ function CTOmodule.reloadHard()
 end
 
 
+local function registerDefaultActions()
+  -- Always override so code changes propagate on hard reloads.
+  CTOmodule.actions.register('toggle_window', function()
+    CTOmodule.toggle()
+  end, { override = true })
+
+  CTOmodule.actions.register('reset_window', function()
+    CTOmodule.resetWindow()
+  end, { override = true })
+
+  CTOmodule.actions.register('tick_start', function()
+    CTOmodule.start()
+  end, { override = true })
+
+  CTOmodule.actions.register('tick_stop', function()
+    CTOmodule.stop()
+  end, { override = true })
+
+  CTOmodule.actions.register('print_state', function()
+    local t = CTOmodule._tick
+    local running = t and t.running and true or false
+    local intervalMs = t and t.intervalMs or nil
+    CTOmodule.log('state: running=' .. tostring(running) .. ' intervalMs=' .. tostring(intervalMs) .. ' tickCount=' .. tostring(t and t.tickCount or 0))
+  end, { override = true })
+end
+
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
   if enabledCheck then
@@ -505,6 +598,46 @@ local function applyIntervalFromUI()
   elseif intervalEdit.getPlainText then
     CTOmodule.setInterval(intervalEdit:getPlainText())
   end
+
+local actionEdit = getChild('actionEdit')
+if actionEdit then
+  local last = nil
+  if g_settings and type(g_settings.get) == 'function' then
+    local ok, v = safe(g_settings.get, MODULE_NAME .. '.lastAction')
+    if ok and v ~= nil then last = tostring(v) end
+  end
+  if last and actionEdit.setText then actionEdit:setText(last) end
+end
+
+local function getActionName()
+  local name = getWidgetText(actionEdit)
+  name = tostring(name or ''):gsub('\r', ''):gsub('\n.*', ''):gsub('^%s+', ''):gsub('%s+$', '')
+  if name ~= '' then
+    settingsSet(MODULE_NAME .. '.lastAction', name)
+  end
+  return name
+end
+
+local btnRunAction = getChild('btnRunAction')
+if btnRunAction then
+  btnRunAction.onClick = function()
+    local name = getActionName()
+    if name == '' then
+      CTOmodule.log('action empty')
+      return
+    end
+    CTOmodule.actions.run(name)
+  end
+end
+
+local btnListActions = getChild('btnListActions')
+if btnListActions then
+  btnListActions.onClick = function()
+    local list = CTOmodule.actions.list()
+    CTOmodule.log('actions: ' .. table.concat(list, ', '))
+  end
+end
+
 end
 
 local intervalEdit = getChild('intervalEdit')
@@ -593,6 +726,7 @@ end
   bindHotkey()
 
 CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', resetWin: ' .. RESET_HOTKEY .. ')')
+  CTOmodule.log('actions ready: ' .. table.concat(CTOmodule.actions.list(), ', '))
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()

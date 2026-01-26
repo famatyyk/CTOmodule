@@ -1,12 +1,12 @@
 MainWindow
   id: ctoWindow
   text: CTOmodule
-  size: 520 330
+  size: 560 380
   visible: false
 
   Label
     id: title
-    text: CTOmodule MVP v0.3 (Tick loop)
+    text: CTOmodule MVP v0.5 (Actions)
     anchors.top: parent.top
     anchors.left: parent.left
     margin-top: 10
@@ -73,13 +73,49 @@ MainWindow
     margin-left: 8
     width: 70
 
+  Label
+    id: actionLabel
+    text: Action:
+    anchors.top: intervalLabel.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    margin-left: 12
+
+  TextEdit
+    id: actionEdit
+    text: print_state
+    anchors.top: intervalLabel.bottom
+    anchors.left: actionLabel.right
+    margin-top: 10
+    margin-left: 10
+    width: 180
+    height: 20
+
+  Button
+    id: btnRunAction
+    text: Run
+    anchors.top: intervalLabel.bottom
+    anchors.left: actionEdit.right
+    margin-top: 10
+    margin-left: 10
+    width: 56
+
+  Button
+    id: btnListActions
+    text: List
+    anchors.top: intervalLabel.bottom
+    anchors.left: btnRunAction.right
+    margin-top: 10
+    margin-left: 8
+    width: 56
+
   Button
     id: btnPrint
     text: Print
     anchors.top: intervalLabel.bottom
-    anchors.left: parent.left
+    anchors.left: btnListActions.right
     margin-top: 10
-    margin-left: 12
+    margin-left: 8
     width: 64
 
   Button
@@ -111,11 +147,11 @@ MainWindow
 
   TextEdit
     id: logBox
-    anchors.top: btnPrint.bottom
+    anchors.top: actionLabel.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
-    margin-top: 10
+    margin-top: 12
     margin-left: 12
     margin-right: 12
     margin-bottom: 12
