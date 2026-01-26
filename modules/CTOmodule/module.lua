@@ -4,11 +4,13 @@ CTOmodule = CTOmodule or {}
 local MODULE_NAME = 'CTOmodule'
 local HOTKEY = 'Ctrl+Shift+C'
 local TICK_HOTKEY = 'Ctrl+Shift+T'
+local RESET_HOTKEY = 'Ctrl+Shift+O'
 
 local rootWidget = nil
 local window = nil
 local hotkeyFn = nil
 local tickHotkeyFn = nil
+local resetHotkeyFn = nil
 
 -- keep log across reloads
 CTOmodule._log = CTOmodule._log or { buf = {}, max = 200 }
@@ -116,12 +118,56 @@ local function saveWindowState()
   end
 end
 
+local function applyWindowDefaults()
+  -- Conservative defaults that should be on-screen in most setups.
+  local x, y, w, h = 80, 80, 520, 330
+  settingsSet(MODULE_NAME .. '.win.x', x)
+  settingsSet(MODULE_NAME .. '.win.y', y)
+  settingsSet(MODULE_NAME .. '.win.w', w)
+  settingsSet(MODULE_NAME .. '.win.h', h)
+  settingsSet(MODULE_NAME .. '.win.visible', true)
+
+  if window then
+    if window.setPosition then
+      safe(function() window:setPosition({x = x, y = y}) end)
+    else
+      if window.setX then safe(function() window:setX(x) end) end
+      if window.setY then safe(function() window:setY(y) end) end
+    end
+
+    if window.setSize then
+      safe(function() window:setSize({width = w, height = h}) end)
+    elseif window.resize then
+      safe(function() window:resize({width = w, height = h}) end)
+    end
+
+    if window.show then safe(function() window:show() end) end
+    if window.raise then safe(function() window:raise() end) end
+    if window.focus then safe(function() window:focus() end) end
+  end
+end
+
 local function restoreWindowState()
   if not window then return end
 
+  -- If the stored geometry is garbage/off-screen, ignore it.
   local x = settingsGetNumber(MODULE_NAME .. '.win.x', nil)
   local y = settingsGetNumber(MODULE_NAME .. '.win.y', nil)
-  if x ~= nil and y ~= nil then
+  local w = settingsGetNumber(MODULE_NAME .. '.win.w', nil)
+  local h = settingsGetNumber(MODULE_NAME .. '.win.h', nil)
+
+  local function sane(n, minv, maxv)
+    if n == nil then return false end
+    if type(n) ~= 'number' then n = tonumber(n) end
+    if n == nil then return false end
+    if n < minv or n > maxv then return false end
+    return true
+  end
+
+  local hasPos = sane(x, -2000, 20000) and sane(y, -2000, 20000)
+  local hasSize = sane(w, 200, 6000) and sane(h, 200, 6000)
+
+  if hasPos then
     if window.setPosition then
       safe(function() window:setPosition({x = x, y = y}) end)
     else
@@ -130,21 +176,27 @@ local function restoreWindowState()
     end
   end
 
-  local w = settingsGetNumber(MODULE_NAME .. '.win.w', nil)
-  local h = settingsGetNumber(MODULE_NAME .. '.win.h', nil)
-  if w ~= nil and h ~= nil then
+  if hasSize then
     if window.setSize then
       safe(function() window:setSize({width = w, height = h}) end)
-    else
-      if window.resize then safe(function() window:resize({width = w, height = h}) end) end
+    elseif window.resize then
+      safe(function() window:resize({width = w, height = h}) end)
     end
   end
 
   local vis = settingsGetBool(MODULE_NAME .. '.win.visible', false)
   if vis then
     if window.show then safe(function() window:show() end) end
+    if window.raise then safe(function() window:raise() end) end
+    if window.focus then safe(function() window:focus() end) end
   else
     if window.hide then safe(function() window:hide() end) end
+  end
+
+  -- If we had stored values but they were insane, force defaults so the user can see the window.
+  if (x ~= nil or y ~= nil or w ~= nil or h ~= nil) and (not hasPos or not hasSize) then
+    applyWindowDefaults()
+    CTOmodule.log('window state was invalid; reset to defaults')
   end
 end
 
@@ -325,6 +377,13 @@ if tickHotkeyFn then
   elseif type(g_keyboard.unbindKeyPress) == 'function' then
     safe(g_keyboard.unbindKeyPress, TICK_HOTKEY, tickHotkeyFn, rootWidget)
   end
+if resetHotkeyFn then
+  if type(g_keyboard.unbindKeyDown) == 'function' then
+    safe(g_keyboard.unbindKeyDown, RESET_HOTKEY, resetHotkeyFn, rootWidget)
+  elseif type(g_keyboard.unbindKeyPress) == 'function' then
+    safe(g_keyboard.unbindKeyPress, RESET_HOTKEY, resetHotkeyFn, rootWidget)
+  end
+end
 end
 end
 
@@ -343,6 +402,16 @@ local function bindHotkey()
 
 tickHotkeyFn = function()
   CTOmodule.toggleRun()
+
+resetHotkeyFn = function()
+  CTOmodule.resetWindow()
+end
+
+if type(g_keyboard.bindKeyDown) == 'function' then
+  safe(g_keyboard.bindKeyDown, RESET_HOTKEY, resetHotkeyFn, rootWidget)
+elseif type(g_keyboard.bindKeyPress) == 'function' then
+  safe(g_keyboard.bindKeyPress, RESET_HOTKEY, resetHotkeyFn, rootWidget)
+end
 end
 
 if type(g_keyboard.bindKeyDown) == 'function' then
@@ -362,6 +431,11 @@ function CTOmodule.toggle()
     if window.focus then window:focus() end
   end
   saveWindowState()
+end
+
+function CTOmodule.resetWindow()
+  applyWindowDefaults()
+  CTOmodule.log('window reset to defaults')
 end
 
 function CTOmodule.reload()
@@ -518,7 +592,7 @@ end
   unbindHotkey()
   bindHotkey()
 
-CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ')')
+CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', resetWin: ' .. RESET_HOTKEY .. ')')
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()
