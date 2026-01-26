@@ -155,10 +155,17 @@ local tasksUiApplyIntervalFromUI
 local tasksUiApplyPriorityFromUI
 
 
+local tasksUiToggleMuteSelected
+local tasksUiToggleMuteAll
+local tasksUiEnableAll
+local tasksUiDisableAll
 -- keep log across reloads
 CTOmodule._log = CTOmodule._log or { buf = {}, max = 200 }
 CTOmodule.config = CTOmodule.config or {}
 
+
+CTOmodule._taskLogMuteGlobal = (CTOmodule._taskLogMuteGlobal == true) and true or false
+CTOmodule._inTask = nil
 CTOmodule.actions = CTOmodule.actions or { map = {}, order = {} }
 
 local function actionsEnsureOrder(name)
@@ -566,8 +573,22 @@ local function logRender()
   return table.concat(buf, "\n")
 end
 
-function CTOmodule.log(msg)
+function CTOmodule.log(msg, opts)
+  opts = opts or {}
   msg = tostring(msg or '')
+
+  -- optional task log muting
+  local inTask = CTOmodule._inTask
+  if inTask and not opts.force then
+    if CTOmodule._taskLogMuteGlobal then
+      return
+    end
+    local rec = CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.map[inTask] or nil
+    if rec and rec.muteLog then
+      return
+    end
+  end
+
   -- always print (dev visibility)
   print('[' .. MODULE_NAME .. '] ' .. msg)
 
@@ -587,6 +608,18 @@ function CTOmodule.log(msg)
     end
   end
 end
+
+function CTOmodule.setMuteTaskLogs(enabled)
+  CTOmodule._taskLogMuteGlobal = enabled and true or false
+  settingsSet(MODULE_NAME .. '.muteTaskLogs', CTOmodule._taskLogMuteGlobal)
+  CTOmodule.log('task logs muted=' .. tostring(CTOmodule._taskLogMuteGlobal), { force = true })
+  if window and tasksUiRefresh then tasksUiRefresh() end
+end
+
+function CTOmodule.toggleMuteTaskLogs()
+  CTOmodule.setMuteTaskLogs(not CTOmodule._taskLogMuteGlobal)
+end
+
 
 local function updateStatus()
   local statusLabel = getChild('statusLabel')
@@ -920,7 +953,8 @@ local function _saveTasksConfig()
     if rec then
       local i = tonumber(rec.intervalMs) or 1000
       local p = tonumber(rec.priority) or 0
-      lines[#lines + 1] = tostring(name) .. '=' .. tostring(i) .. ',' .. tostring(p)
+      local m = (rec.muteLog == true) and 1 or 0
+      lines[#lines + 1] = tostring(name) .. '=' .. tostring(i) .. ',' .. tostring(p) .. ',' .. tostring(m)
     end
   end
   table.sort(lines)
@@ -930,12 +964,16 @@ end
 local function _loadTasksConfig()
   local raw = settingsGetString(MODULE_NAME .. '.tasksConfig', '')
   local cfg = {}
-  for line in raw:gmatch('[^\r\n]+') do
+  for line in raw:gmatch('[^\n]+') do
     local k, rest = line:match('^([^=]+)=(.+)$')
     if k and rest then
-      local i, p = rest:match('^(%d+),(%-?%d+)$')
+      local i, p, m = rest:match('^(%d+),(%-?%d+),(%d)$')
+      if not i then
+        i, p = rest:match('^(%d+),(%-?%d+)$')
+        m = nil
+      end
       if i and p then
-        cfg[tostring(k)] = { intervalMs = tonumber(i), priority = tonumber(p) }
+        cfg[tostring(k)] = { intervalMs = tonumber(i), priority = tonumber(p), muteLog = (m == '1') }
       end
     end
   end
@@ -970,6 +1008,7 @@ function CTOmodule.tasks.applyConfig()
     if rec and c then
       if tonumber(c.intervalMs) then rec.intervalMs = tonumber(c.intervalMs) end
       if tonumber(c.priority) then rec.priority = tonumber(c.priority) end
+      if c.muteLog ~= nil then rec.muteLog = (c.muteLog == true) end
     end
   end
   CTOmodule.tasks._rebuildSorted()
@@ -991,6 +1030,7 @@ function CTOmodule.tasks.setInterval(name, ms, dontSave)
   CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
   CTOmodule.tasks._cfg[name].intervalMs = v
   CTOmodule.tasks._cfg[name].priority = tonumber(rec.priority) or 0
+  CTOmodule.tasks._cfg[name].muteLog = (rec.muteLog == true)
   if not dontSave then _saveTasksConfig() end
   CTOmodule.log('task ' .. name .. ' intervalMs=' .. tostring(v))
   return true
@@ -1012,9 +1052,38 @@ function CTOmodule.tasks.setPriority(name, pr, dontSave)
   CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
   CTOmodule.tasks._cfg[name].intervalMs = tonumber(rec.intervalMs) or 1000
   CTOmodule.tasks._cfg[name].priority = v
+  CTOmodule.tasks._cfg[name].muteLog = (rec.muteLog == true)
   if not dontSave then _saveTasksConfig() end
   CTOmodule.log('task ' .. name .. ' priority=' .. tostring(v))
   return true
+end
+
+function CTOmodule.tasks.setMute(name, muted, dontSave)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local rec = CTOmodule.tasks.map[name]
+  if not rec then
+    CTOmodule.log('task not found: ' .. name)
+    return false
+  end
+  rec.muteLog = muted and true or false
+  CTOmodule.tasks._cfg = CTOmodule.tasks._cfg or _loadTasksConfig()
+  CTOmodule.tasks._cfg[name] = CTOmodule.tasks._cfg[name] or {}
+  CTOmodule.tasks._cfg[name].intervalMs = tonumber(rec.intervalMs) or 1000
+  CTOmodule.tasks._cfg[name].priority = tonumber(rec.priority) or 0
+  CTOmodule.tasks._cfg[name].muteLog = (rec.muteLog == true)
+  if not dontSave then _saveTasksConfig() end
+  CTOmodule.log('task ' .. name .. ' muteLog=' .. tostring(rec.muteLog))
+  return true
+end
+
+function CTOmodule.tasks.toggleMute(name)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local rec = CTOmodule.tasks.map[name]
+  if not rec then
+    CTOmodule.log('task not found: ' .. name)
+    return false
+  end
+  return CTOmodule.tasks.setMute(name, not rec.muteLog)
 end
 
 
@@ -1036,10 +1105,12 @@ function CTOmodule.tasks.register(name, fn, opts)
   if rec.intervalMs < 50 then rec.intervalMs = 50 end
   if rec.intervalMs > 60000 then rec.intervalMs = 60000 end
   rec.priority = tonumber(opts.priority) or rec.priority or 0
+  rec.muteLog = (opts.muteLog == true) or (rec.muteLog == true) or false
   local cfg = CTOmodule.tasks._cfg and CTOmodule.tasks._cfg[name]
   if cfg then
     if tonumber(cfg.intervalMs) then rec.intervalMs = tonumber(cfg.intervalMs) end
     if tonumber(cfg.priority) then rec.priority = tonumber(cfg.priority) end
+    if cfg.muteLog ~= nil then rec.muteLog = (cfg.muteLog == true) end
   end
   rec.enabled = (rec.enabled == true) and true or false
   rec.nextAt = rec.nextAt or 0
@@ -1073,7 +1144,7 @@ function CTOmodule.tasks.listEnabled()
   return out
 end
 
-function CTOmodule.tasks.enable(name, enabled, dontSave)
+function CTOmodule.tasks.enable(name, enabled, dontSave, silent)
   name = tostring(name or ''):gsub('%s+', '_')
   local rec = CTOmodule.tasks.map[name]
   if not rec then
@@ -1085,8 +1156,26 @@ function CTOmodule.tasks.enable(name, enabled, dontSave)
   if not dontSave then
     _saveTasksEnabled()
   end
-  CTOmodule.log('task ' .. name .. ' enabled=' .. tostring(rec.enabled))
+  if not silent then
+    CTOmodule.log('task ' .. name .. ' enabled=' .. tostring(rec.enabled))
+  end
   return true
+end
+
+function CTOmodule.tasks.enableAll(enabled, dontSave)
+  local names = CTOmodule.tasks.list()
+  for i = 1, #names do
+    CTOmodule.tasks.enable(names[i], enabled, true, true)
+  end
+  if not dontSave then
+    _saveTasksEnabled()
+  end
+  CTOmodule.log('tasks ' .. (enabled and 'enabled' or 'disabled') .. ': all')
+  return true
+end
+
+function CTOmodule.tasks.disableAll(dontSave)
+  return CTOmodule.tasks.enableAll(false, dontSave)
 end
 
 function CTOmodule.tasks.toggle(name)
@@ -1107,40 +1196,45 @@ function CTOmodule.tasks.runOnce(name)
   end
   local now = _nowMs()
   local ctx = _buildTaskCtx(now)
+  CTOmodule._inTask = name
   local ok, err = pcall(rec.fn, ctx)
+  CTOmodule._inTask = nil
   rec.runCount = (rec.runCount or 0) + 1
   if not ok then
     rec.errCount = (rec.errCount or 0) + 1
     rec.lastErr = tostring(err)
-    CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr)
+    CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr, { force = true })
     return false
   end
-  CTOmodule.log('task ran: ' .. name)
+  CTOmodule.log('task ran: ' .. name, { force = true })
   return true
 end
 
 function CTOmodule.tasks.runDue()
   local now = _nowMs()
   local ctx = _buildTaskCtx(now)
-  for i = 1, #CTOmodule.tasks.order do
-    local name = CTOmodule.tasks.order[i]
+  local order = CTOmodule.tasks._sorted or CTOmodule.tasks.order
+  for i = 1, #order do
+    local name = order[i]
     local rec = CTOmodule.tasks.map[name]
     if rec and rec.enabled then
       local dueAt = rec.nextAt or 0
       if now >= dueAt then
         rec.nextAt = now + (rec.intervalMs or 1000)
         rec.runCount = (rec.runCount or 0) + 1
+        CTOmodule._inTask = name
         local ok, err = pcall(rec.fn, ctx)
+        CTOmodule._inTask = nil
         if not ok then
           rec.errCount = (rec.errCount or 0) + 1
           rec.lastErr = tostring(err)
-          CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr)
-          -- mild backoff on error
+          CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr, { force = true })
           rec.nextAt = now + math.max(1000, rec.intervalMs or 1000)
         end
       end
     end
   end
+  CTOmodule._inTask = nil
 end
 
 function CTOmodule.tasks.loadEnabled()
@@ -1242,6 +1336,10 @@ CTOmodule.actions.register('tasks_list', function()
 end, { override = true })
 
 CTOmodule.actions.register('tasks_enable_demo', function()
+  if CTOmodule.tasks and CTOmodule.tasks.enableAll then
+    CTOmodule.tasks.enableAll(true)
+    return
+  end
   local names = CTOmodule.tasks.list()
   for i = 1, #names do
     CTOmodule.tasks.enable(names[i], true)
@@ -1250,16 +1348,25 @@ CTOmodule.actions.register('tasks_enable_demo', function()
 end, { override = true })
 
 CTOmodule.actions.register('tasks_disable_all', function()
+  if CTOmodule.tasks and CTOmodule.tasks.disableAll then
+    CTOmodule.tasks.disableAll()
+    return
+  end
   if not (CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.enable) then return end
   for name, _ in pairs(CTOmodule.tasks.map) do
     CTOmodule.tasks.enable(name, false, true)
   end
-  if CTOmodule.tasks.loadEnabled then
-    -- resave empty set in canonical form
-    local raw = ''
-    settingsSet(MODULE_NAME .. '.tasksEnabled', raw)
-  end
+  settingsSet(MODULE_NAME .. '.tasksEnabled', '')
   CTOmodule.log('tasks disabled: all')
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_mute', function()
+  if not window then CTOmodule.log('tasks_ui_mute: UI not loaded') return end
+  if tasksUiToggleMuteSelected then tasksUiToggleMuteSelected() end
+end, { override = true })
+
+CTOmodule.actions.register('tasks_ui_mute_all', function()
+  CTOmodule.toggleMuteTaskLogs()
 end, { override = true })
 
 
@@ -1433,7 +1540,8 @@ tasksUiRefresh = function()
       local enabled = (rec and rec.enabled) and 'ON' or 'off'
       local intervalMs = rec and rec.intervalMs or 0
       local pr = rec and rec.priority or 0
-      lines[#lines + 1] = prefix .. name .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr)
+      local mute = (rec and rec.muteLog) and ' mute' or ''
+      lines[#lines + 1] = prefix .. name .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr) .. mute
     end
     if #lines == 0 then
       lines[1] = '(no tasks)'
@@ -1444,10 +1552,28 @@ tasksUiRefresh = function()
   local sel = list[t.idx]
   local selLabel = getChild('tasksSelectedLabel')
   if selLabel then
-    uiSetText(selLabel, sel and ('Task: ' .. sel) or 'Task: (none)')
+    if sel and rec then
+      local enabled = rec.enabled and 'ON' or 'off'
+      local intervalMs = rec.intervalMs or 0
+      local pr = rec.priority or 0
+      local mute = rec.muteLog and ' mute' or ''
+      uiSetText(selLabel, 'Task: ' .. sel .. ' [' .. enabled .. '] ' .. tostring(intervalMs) .. 'ms pr=' .. tostring(pr) .. mute)
+    else
+      uiSetText(selLabel, 'Task: (none)')
+    end
   end
 
   local rec = sel and CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.map[sel] or nil
+
+  local btnMute = getChild('btnTasksMute')
+  if btnMute and btnMute.setText then
+    btnMute:setText(rec and rec.muteLog and 'Unmute' or 'Mute')
+  end
+  local btnMuteAll = getChild('btnTasksMuteAll')
+  if btnMuteAll and btnMuteAll.setText then
+    btnMuteAll:setText(CTOmodule._taskLogMuteGlobal and 'UnmuteAll' or 'MuteAll')
+  end
+
   local intervalEdit = getChild('taskIntervalEdit')
   if intervalEdit and intervalEdit.setText then
     intervalEdit:setText(rec and tostring(rec.intervalMs or '') or '')
@@ -1486,6 +1612,38 @@ tasksUiToggleSelected = function()
   if not name then return end
   if CTOmodule.tasks and CTOmodule.tasks.toggle then
     CTOmodule.tasks.toggle(name)
+  end
+  tasksUiRefresh()
+end
+
+tasksUiToggleMuteSelected = function()
+  local name = tasksUiSelectedName()
+  if not name then return end
+  if CTOmodule.tasks and CTOmodule.tasks.toggleMute then
+    CTOmodule.tasks.toggleMute(name)
+  end
+  tasksUiRefresh()
+end
+
+tasksUiToggleMuteAll = function()
+  if CTOmodule.toggleMuteTaskLogs then
+    CTOmodule.toggleMuteTaskLogs()
+  end
+  tasksUiRefresh()
+end
+
+tasksUiEnableAll = function()
+  if CTOmodule.tasks and CTOmodule.tasks.enableAll then
+    CTOmodule.tasks.enableAll(true)
+  end
+  tasksUiRefresh()
+end
+
+tasksUiDisableAll = function()
+  if CTOmodule.tasks and CTOmodule.tasks.disableAll then
+    CTOmodule.tasks.disableAll()
+  elseif CTOmodule.tasks and CTOmodule.tasks.enableAll then
+    CTOmodule.tasks.enableAll(false)
   end
   tasksUiRefresh()
 end
@@ -1781,6 +1939,34 @@ if btnTasksRunOnce then
   end
 end
 
+local btnTasksEnableAll = getChild('btnTasksEnableAll')
+if btnTasksEnableAll then
+  btnTasksEnableAll.onClick = function()
+    tasksUiEnableAll()
+  end
+end
+
+local btnTasksDisableAll = getChild('btnTasksDisableAll')
+if btnTasksDisableAll then
+  btnTasksDisableAll.onClick = function()
+    tasksUiDisableAll()
+  end
+end
+
+local btnTasksMute = getChild('btnTasksMute')
+if btnTasksMute then
+  btnTasksMute.onClick = function()
+    tasksUiToggleMuteSelected()
+  end
+end
+
+local btnTasksMuteAll = getChild('btnTasksMuteAll')
+if btnTasksMuteAll then
+  btnTasksMuteAll.onClick = function()
+    tasksUiToggleMuteAll()
+  end
+end
+
 local btnTaskSetInterval = getChild('btnTaskSetInterval')
 if btnTaskSetInterval then
   btnTaskSetInterval.onClick = function()
@@ -1831,6 +2017,10 @@ end
 if cfg and cfg.tickIntervalMs then
   CTOmodule._tick.intervalMs = cfg.tickIntervalMs
 end
+
+-- persisted global task-log mute
+CTOmodule._taskLogMuteGlobal = settingsGetBool(MODULE_NAME .. '.muteTaskLogs', CTOmodule._taskLogMuteGlobal == true)
+
 
   -- UI (module-relative path)
   window = g_ui.loadUI('ui/main.otui', rootWidget)
