@@ -152,10 +152,22 @@ function CTOmodule.toggle()
 end
 
 function CTOmodule.reload()
+  -- Soft reload: re-create UI/binds/config without re-dofiling code.
   CTOmodule.log('reload requested')
   CTOmodule.terminate()
   CTOmodule.init()
 end
+
+function CTOmodule.reloadHard()
+  -- Hard reload: re-dofile module.lua (refreshes code) then init again.
+  CTOmodule.log('hard reload requested')
+  CTOmodule.terminate()
+  dofile('module.lua')
+  if CTOmodule and CTOmodule.init then
+    CTOmodule.init()
+  end
+end
+
 
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
@@ -183,6 +195,13 @@ local function wireUi()
     end
   end
 
+
+  local btnHardReload = getChild('btnHardReload')
+  if btnHardReload then
+    btnHardReload.onClick = function()
+      CTOmodule.reloadHard()
+    end
+  end
   local btnClear = getChild('btnClear')
   if btnClear then
     btnClear.onClick = function()
@@ -202,6 +221,10 @@ local function wireUi()
 end
 
 function CTOmodule.init()
+  -- Idempotent init: if already initialized, clean up first
+  if window then
+    CTOmodule.terminate()
+  end
   rootWidget = g_ui and g_ui.getRootWidget and g_ui.getRootWidget() or nil
   if not rootWidget then
     print('[' .. MODULE_NAME .. '] ERROR: no root widget')

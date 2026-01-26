@@ -1,7 +1,7 @@
 MainWindow
   id: ctoWindow
   text: CTOmodule
-  size: 420 300
+  size: 460 300
   visible: false
 
   Label
@@ -27,7 +27,7 @@ MainWindow
     anchors.left: enabledCheck.right
     margin-top: 6
     margin-left: 12
-    width: 72
+    width: 64
 
   Button
     id: btnReload
@@ -36,13 +36,22 @@ MainWindow
     anchors.left: btnPrint.right
     margin-top: 6
     margin-left: 8
-    width: 72
+    width: 64
+
+  Button
+    id: btnHardReload
+    text: Hard
+    anchors.top: title.bottom
+    anchors.left: btnReload.right
+    margin-top: 6
+    margin-left: 8
+    width: 56
 
   Button
     id: btnClear
     text: Clear log
     anchors.top: title.bottom
-    anchors.left: btnReload.right
+    anchors.left: btnHardReload.right
     margin-top: 6
     margin-left: 8
     width: 84
