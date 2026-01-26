@@ -625,6 +625,10 @@ local function tickStep()
   t.tickCount = (t.tickCount or 0) + 1
   updateStatus()
 
+  if CTOmodule.tasks and CTOmodule.tasks.runDue then
+    CTOmodule.tasks.runDue()
+  end
+
   -- Optional periodic log (avoid spamming)
   local every = CTOmodule.config and CTOmodule.config.tickLogEvery or 0
   if every and every > 0 and (t.tickCount % every == 0) then
@@ -801,6 +805,261 @@ function CTOmodule.reloadHard()
 end
 
 
+
+-- === MVP v0.7: Task Scheduler (small, safe, console-first) ===
+CTOmodule.tasks = CTOmodule.tasks or { map = {}, order = {} }
+CTOmodule._tasksRuntime = CTOmodule._tasksRuntime or { lastOnline = nil }
+
+local function _tasksEnsureOrder(name)
+  local order = CTOmodule.tasks.order
+  for i = 1, #order do
+    if order[i] == name then return end
+  end
+  order[#order + 1] = name
+end
+
+local function _nowMs()
+  if g_clock then
+    if type(g_clock.millis) == 'function' then
+      local ok, v = pcall(g_clock.millis)
+      if ok and type(v) == 'number' then return v end
+    end
+    if type(g_clock.time) == 'function' then
+      local ok, v = pcall(g_clock.time)
+      if ok and type(v) == 'number' then return math.floor(v * 1000) end
+    end
+  end
+  return os.time() * 1000
+end
+
+local function _isOnline()
+  if g_game and type(g_game.isOnline) == 'function' then
+    local ok, v = pcall(g_game.isOnline, g_game)
+    if ok then return v and true or false end
+    ok, v = pcall(g_game.isOnline)
+    if ok then return v and true or false end
+  end
+  return false
+end
+
+local function _getLocalPlayer()
+  if g_game and type(g_game.getLocalPlayer) == 'function' then
+    local ok, p = pcall(g_game.getLocalPlayer, g_game)
+    if ok and p then return p end
+    ok, p = pcall(g_game.getLocalPlayer)
+    if ok and p then return p end
+  end
+  return nil
+end
+
+local function _getPct(player, getPctFnName, getFnName, getMaxFnName)
+  if not player then return nil end
+  local fn = player[getPctFnName]
+  if type(fn) == 'function' then
+    local ok, v = pcall(fn, player)
+    if ok and type(v) == 'number' then return v end
+  end
+  local getFn = player[getFnName]
+  local getMaxFn = player[getMaxFnName]
+  if type(getFn) == 'function' and type(getMaxFn) == 'function' then
+    local ok1, cur = pcall(getFn, player)
+    local ok2, mx = pcall(getMaxFn, player)
+    if ok1 and ok2 and type(cur) == 'number' and type(mx) == 'number' and mx > 0 then
+      return math.floor((cur / mx) * 100)
+    end
+  end
+  return nil
+end
+
+local function _buildTaskCtx(nowMs)
+  local online = _isOnline()
+  local p = online and _getLocalPlayer() or nil
+  return {
+    nowMs = nowMs,
+    online = online,
+    tickCount = (CTOmodule._tick and CTOmodule._tick.tickCount) or 0,
+    intervalMs = (CTOmodule._tick and CTOmodule._tick.intervalMs) or nil,
+    hpPct = _getPct(p, 'getHealthPercent', 'getHealth', 'getMaxHealth'),
+    manaPct = _getPct(p, 'getManaPercent', 'getMana', 'getMaxMana'),
+  }
+end
+
+local function _saveTasksEnabled()
+  local lines = {}
+  for name, rec in pairs(CTOmodule.tasks.map) do
+    if rec and rec.enabled then
+      lines[#lines + 1] = tostring(name) .. '=1'
+    end
+  end
+  table.sort(lines)
+  settingsSet(MODULE_NAME .. '.tasksEnabled', table.concat(lines, '\n'))
+end
+
+function CTOmodule.tasks.register(name, fn, opts)
+  name = tostring(name or ''):gsub('%s+', '_')
+  if name == '' then return false, 'empty name' end
+  if type(fn) ~= 'function' then return false, 'fn must be function' end
+
+  opts = opts or {}
+  local existing = CTOmodule.tasks.map[name]
+  if existing and not opts.override then
+    return false, 'already registered'
+  end
+
+  local rec = existing or {}
+  rec.name = name
+  rec.fn = fn
+  rec.intervalMs = tonumber(opts.intervalMs) or rec.intervalMs or 1000
+  if rec.intervalMs < 50 then rec.intervalMs = 50 end
+  if rec.intervalMs > 60000 then rec.intervalMs = 60000 end
+  rec.priority = tonumber(opts.priority) or rec.priority or 0
+  rec.enabled = (rec.enabled == true) and true or false
+  rec.nextAt = rec.nextAt or 0
+  rec.runCount = rec.runCount or 0
+  rec.errCount = rec.errCount or 0
+  rec.lastErr = rec.lastErr or nil
+
+  CTOmodule.tasks.map[name] = rec
+  _tasksEnsureOrder(name)
+  return true
+end
+
+function CTOmodule.tasks.list()
+  local out = {}
+  for i = 1, #CTOmodule.tasks.order do
+    out[#out + 1] = CTOmodule.tasks.order[i]
+  end
+  return out
+end
+
+function CTOmodule.tasks.listEnabled()
+  local out = {}
+  for i = 1, #CTOmodule.tasks.order do
+    local name = CTOmodule.tasks.order[i]
+    local rec = CTOmodule.tasks.map[name]
+    if rec and rec.enabled then out[#out + 1] = name end
+  end
+  return out
+end
+
+function CTOmodule.tasks.enable(name, enabled, dontSave)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local rec = CTOmodule.tasks.map[name]
+  if not rec then
+    CTOmodule.log('task not found: ' .. name)
+    return false
+  end
+  rec.enabled = enabled and true or false
+  rec.nextAt = 0
+  if not dontSave then
+    _saveTasksEnabled()
+  end
+  CTOmodule.log('task ' .. name .. ' enabled=' .. tostring(rec.enabled))
+  return true
+end
+
+function CTOmodule.tasks.toggle(name)
+  local rec = CTOmodule.tasks.map[tostring(name or ''):gsub('%s+', '_')]
+  if not rec then
+    CTOmodule.log('task not found: ' .. tostring(name))
+    return false
+  end
+  return CTOmodule.tasks.enable(rec.name, not rec.enabled)
+end
+
+function CTOmodule.tasks.runOnce(name)
+  name = tostring(name or ''):gsub('%s+', '_')
+  local rec = CTOmodule.tasks.map[name]
+  if not rec then
+    CTOmodule.log('task not found: ' .. name)
+    return false
+  end
+  local now = _nowMs()
+  local ctx = _buildTaskCtx(now)
+  local ok, err = pcall(rec.fn, ctx)
+  rec.runCount = (rec.runCount or 0) + 1
+  if not ok then
+    rec.errCount = (rec.errCount or 0) + 1
+    rec.lastErr = tostring(err)
+    CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr)
+    return false
+  end
+  CTOmodule.log('task ran: ' .. name)
+  return true
+end
+
+function CTOmodule.tasks.runDue()
+  local now = _nowMs()
+  local ctx = _buildTaskCtx(now)
+  for i = 1, #CTOmodule.tasks.order do
+    local name = CTOmodule.tasks.order[i]
+    local rec = CTOmodule.tasks.map[name]
+    if rec and rec.enabled then
+      local dueAt = rec.nextAt or 0
+      if now >= dueAt then
+        rec.nextAt = now + (rec.intervalMs or 1000)
+        rec.runCount = (rec.runCount or 0) + 1
+        local ok, err = pcall(rec.fn, ctx)
+        if not ok then
+          rec.errCount = (rec.errCount or 0) + 1
+          rec.lastErr = tostring(err)
+          CTOmodule.log('task error: ' .. name .. ' -> ' .. rec.lastErr)
+          -- mild backoff on error
+          rec.nextAt = now + math.max(1000, rec.intervalMs or 1000)
+        end
+      end
+    end
+  end
+end
+
+function CTOmodule.tasks.loadEnabled()
+  -- load persisted enabled flags AFTER defaults are registered
+  local raw = settingsGetString(MODULE_NAME .. '.tasksEnabled', '')
+  local enabledMap = {}
+  for line in raw:gmatch('[^\r\n]+') do
+    local k, v = line:match('^([^=]+)=(%d)$')
+    if k and v == '1' then
+      enabledMap[tostring(k)] = true
+    end
+  end
+  for name, rec in pairs(CTOmodule.tasks.map) do
+    if rec then
+      rec.enabled = enabledMap[name] and true or false
+      rec.nextAt = 0
+    end
+  end
+  _saveTasksEnabled()
+end
+
+local function registerDefaultTasks()
+  -- Always override so code changes propagate on hard reloads.
+  CTOmodule.tasks.register('online_state', function(ctx)
+    local rt = CTOmodule._tasksRuntime
+    local online = ctx and ctx.online and true or false
+    if rt.lastOnline == nil then
+      rt.lastOnline = online
+      CTOmodule.log('task online_state: ' .. (online and 'online' or 'offline'))
+      return
+    end
+    if online ~= rt.lastOnline then
+      rt.lastOnline = online
+      CTOmodule.log('task online_state: ' .. (online and 'online' or 'offline'))
+    end
+  end, { override = true, intervalMs = 500, priority = 10 })
+
+  CTOmodule.tasks.register('vitals', function(ctx)
+    if not (ctx and ctx.online) then return end
+    local hp = ctx.hpPct
+    local mp = ctx.manaPct
+    if type(hp) ~= 'number' and type(mp) ~= 'number' then return end
+    CTOmodule.log('task vitals: hp=' .. tostring(hp) .. '% mana=' .. tostring(mp) .. '%')
+  end, { override = true, intervalMs = 2000, priority = 0 })
+end
+
+-- Preload tasks so they exist right after dofile('module.lua')
+registerDefaultTasks()
+
+
 local function registerDefaultActions()
   -- Always override so code changes propagate on hard reloads.
   CTOmodule.actions.register('toggle_window', function()
@@ -829,10 +1088,58 @@ local function registerDefaultActions()
     local raw = settingsGetString(MODULE_NAME .. '.actionHotkeys', '')
     CTOmodule.log('persisted actionHotkeys=' .. (raw ~= '' and raw or '(empty)'))
   end, { override = true })
+
+CTOmodule.actions.register('tasks_list', function()
+  if not (CTOmodule.tasks and CTOmodule.tasks.list) then
+    CTOmodule.log('tasks: (not available)')
+    return
+  end
+  local names = CTOmodule.tasks.list()
+  if #names == 0 then
+    CTOmodule.log('tasks: (none)')
+    return
+  end
+  local lines = {}
+  for i = 1, #names do
+    local name = names[i]
+    local rec = CTOmodule.tasks.map and CTOmodule.tasks.map[name] or nil
+    local on = rec and rec.enabled and true or false
+    local ms = rec and rec.intervalMs or nil
+    lines[#lines + 1] = tostring(name) .. ' enabled=' .. tostring(on) .. ' intervalMs=' .. tostring(ms)
+  end
+  CTOmodule.log('tasks:\n' .. table.concat(lines, '\n'))
+end, { override = true })
+
+CTOmodule.actions.register('tasks_enable_demo', function()
+  if CTOmodule.tasks and CTOmodule.tasks.enable then
+    CTOmodule.tasks.enable('online_state', true)
+    CTOmodule.tasks.enable('vitals', true)
+  end
+end, { override = true })
+
+CTOmodule.actions.register('tasks_disable_all', function()
+  if not (CTOmodule.tasks and CTOmodule.tasks.map and CTOmodule.tasks.enable) then return end
+  for name, _ in pairs(CTOmodule.tasks.map) do
+    CTOmodule.tasks.enable(name, false, true)
+  end
+  if CTOmodule.tasks.loadEnabled then
+    -- resave empty set in canonical form
+    local raw = ''
+    settingsSet(MODULE_NAME .. '.tasksEnabled', raw)
+  end
+  CTOmodule.log('tasks disabled: all')
+end, { override = true })
+
+
 end
 
 -- Preload defaults so actions exist right after dofile('module.lua')
 registerDefaultActions() -- preload
+-- Preload defaults so tasks exist in console immediately
+-- (safe if already registered)
+-- registerDefaultTasks is local inside this chunk
+-- and already invoked by the tasks block.
+
 
 
 local function actionsUiRefresh()
@@ -1190,6 +1497,20 @@ end
   end
 CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', resetWin: ' .. RESET_HOTKEY .. ')')
   local _alist = CTOmodule.actions.list(); CTOmodule.log('actions ready: ' .. (#_alist > 0 and table.concat(_alist, ', ') or '(none)'))
+
+
+-- ensure default tasks are registered (safe on reload/hardReload)
+if CTOmodule.tasks and CTOmodule.tasks.loadEnabled then
+  CTOmodule.tasks.loadEnabled()
+end
+if CTOmodule.tasks and CTOmodule.tasks.list then
+  local _tlist = CTOmodule.tasks.list()
+  CTOmodule.log('tasks ready: ' .. (#_tlist > 0 and table.concat(_tlist, ', ') or '(none)'))
+end
+if CTOmodule.tasks and CTOmodule.tasks.listEnabled then
+  local _ten = CTOmodule.tasks.listEnabled()
+  CTOmodule.log('tasks enabled: ' .. (#_ten > 0 and table.concat(_ten, ', ') or '(none)'))
+end
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()
