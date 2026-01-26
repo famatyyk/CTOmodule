@@ -549,6 +549,10 @@ local function registerDefaultActions()
   end, { override = true })
 end
 
+-- Preload defaults so actions exist right after dofile('module.lua')
+registerDefaultActions() -- preload
+
+
 local function wireUi()
   local enabledCheck = getChild('enabledCheck')
   if enabledCheck then
@@ -725,8 +729,13 @@ end
   unbindHotkey()
   bindHotkey()
 
+
+  -- ensure default actions are registered (safe on reload/hardReload)
+  if registerDefaultActions then
+    registerDefaultActions()
+  end
 CTOmodule.log('loaded (hotkey: ' .. HOTKEY .. ', tick: ' .. TICK_HOTKEY .. ', resetWin: ' .. RESET_HOTKEY .. ')')
-  CTOmodule.log('actions ready: ' .. table.concat(CTOmodule.actions.list(), ', '))
+  local _alist = CTOmodule.actions.list(); CTOmodule.log('actions ready: ' .. (#_alist > 0 and table.concat(_alist, ', ') or '(none)'))
 
 -- restore persisted window + tick state only after UI and binds are ready
 restoreWindowState()
