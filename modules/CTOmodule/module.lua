@@ -991,7 +991,12 @@ function CTOmodule.taskEditor.upsert(name, opts)
   rec = _taskEditorNormalize(rec)
   if not rec then return false end
   if rec.name ~= key then
-    CTOmodule.taskEditor.remove(key)
+    if CTOmodule.taskEditor.map[key] then
+      CTOmodule.taskEditor.remove(key)
+      if CTOmodule.taskEditor.map[key] then
+        return false, 'failed to remove old entry'
+      end
+    end
   end
   CTOmodule.taskEditor.map[rec.name] = rec
   _taskEditorEnsureOrder(rec.name)
