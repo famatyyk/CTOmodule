@@ -1,16 +1,15 @@
--- modules/CTOmodule/module.lua
+-- module.lua
+
 CTOmodule = CTOmodule or {}
 
-local MODULE_NAME = 'CTOmodule'
-
--- NOTE: Some injected blocks compile `safe()` as a global (lexical ordering).
--- Provide a global fallback so calls like safe(fn, ...) never crash.
-if type(safe) ~= 'function' then
-  function safe(fn, ...)
-    local ok, a, b, c, d, e = pcall(fn, ...)
-    if ok then
-      return true, a, b, c, d, e
+CTOmodule.taskEditor = {
+  store = {},
+  upsert = function(taskId, data, force)
+    if not force and CTOmodule.taskEditor.store[taskId] then
+      perror("TaskEditor: Task ID already exists: " .. taskId)
+      return false
     end
+<<<<<<< Updated upstream
     return false, a
   end
 end
@@ -2368,3 +2367,26 @@ function CTOmodule.terminate()
 
   rootWidget = nil
 end
+=======
+    CTOmodule.taskEditor.store[taskId] = data
+    return true
+  end,
+  save = function()
+    print("[taskEditor] Saved store.")
+  end,
+  applyToRuntime = function()
+    print("[taskEditor] Applied to runtime.")
+  end,
+  refreshTaskList = function()
+    print("[taskEditor] Task list refreshed.")
+  end,
+}
+
+CTOmodule.actions = {
+  run = function(name)
+    print("[actions] Running: " .. name)
+  end
+}
+
+print("[CTOmodule] module.lua loaded.")
+>>>>>>> Stashed changes

@@ -1,33 +1,19 @@
-MainWindow
-  id: ctoWindow
-  text: CTOmodule
-  size: 620 590
-  visible: false
+Label text: Task Editor v0.9
+Label id: taskEditorStatus text: "" visible: false color: yellow
 
-  Label
-    id: title
-    text: CTOmodule MVP v0.8 v0.6 (Picker + Hotkeys)
-    anchors.top: parent.top
-    anchors.left: parent.left
-    margin-top: 10
-    margin-left: 12
+ListView id: taskListView
+  onDoubleClick: g_lua.call('CTOmodule.taskEditor.loadToEditor', item:getText())
 
-  CheckBox
-    id: enabledCheck
-    text: Enabled
-    anchors.top: title.bottom
-    anchors.left: parent.left
-    margin-top: 10
-    margin-left: 12
+TextEdit id: taskIdField    placeholder: Task ID
+TextEdit id: intervalField  placeholder: Interval (ms)
+TextEdit id: priorityField  placeholder: Priority
+CheckBox id: enabledCheck   text: Enabled
+TextEdit id: actionField    placeholder: Action name
 
-  Label
-    id: statusLabel
-    text: STOPPED | interval=500ms | tick=0
-    anchors.top: enabledCheck.bottom
-    anchors.left: parent.left
-    margin-top: 8
-    margin-left: 12
+Button text: Save
+  onClick: g_lua.call('CTOmodule.taskEditor.saveFromEditor')
 
+<<<<<<< Updated upstream
   Label
     id: intervalLabel
     text: Interval (ms):
@@ -562,3 +548,7 @@ MainWindow
     margin-right: 12
     margin-bottom: 12
     text: ""
+=======
+Button text: Apply to Runtime
+  onClick: g_ui.runAction('task_editor_ui_apply')
+>>>>>>> Stashed changes
