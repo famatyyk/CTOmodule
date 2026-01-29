@@ -1,11 +1,8 @@
 -- init.lua (fixed paths for local folder)
 
 dofile('module.lua')
-copilot/fix-issue-to-make-it-work
 pcall(dofile, 'collector.lua')
 pcall(dofile, 'builder.lua')
-Updated upstream
-main
 
 function init()
   if CTOmodule and CTOmodule.init then

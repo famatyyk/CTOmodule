@@ -7,7 +7,7 @@ CTOmodule.collector = CTOmodule.collector or {}
 local M = CTOmodule.collector
 
 M.config = M.config or {
-  enabled = false,
+  enabled = true,
   intervalMs = 1000,
   outputPath = 'config/collector_output.lua',
   maxFileSize = 256 * 1024,
