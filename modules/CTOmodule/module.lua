@@ -9,10 +9,10 @@ CTOmodule.taskEditor = {
       perror("TaskEditor: Task ID already exists: " .. taskId)
       return false
     end
-<<<<<<< Updated upstream
-    return false, a
+    CTOmodule.taskEditor.store[taskId] = data
+    return true
   end
-end
+}
 
 -- Global fallback for getRootWidgetSafe (lexical ordering / upvalue resolution can differ across blocks).
 if type(getRootWidgetSafe) ~= 'function' then
@@ -2367,26 +2367,3 @@ function CTOmodule.terminate()
 
   rootWidget = nil
 end
-=======
-    CTOmodule.taskEditor.store[taskId] = data
-    return true
-  end,
-  save = function()
-    print("[taskEditor] Saved store.")
-  end,
-  applyToRuntime = function()
-    print("[taskEditor] Applied to runtime.")
-  end,
-  refreshTaskList = function()
-    print("[taskEditor] Task list refreshed.")
-  end,
-}
-
-CTOmodule.actions = {
-  run = function(name)
-    print("[actions] Running: " .. name)
-  end
-}
-
-print("[CTOmodule] module.lua loaded.")
->>>>>>> Stashed changes
