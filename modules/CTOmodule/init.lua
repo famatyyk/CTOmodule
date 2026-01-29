@@ -1,6 +1,8 @@
 -- init.lua (fixed paths for local folder)
 
 dofile('module.lua')
+pcall(dofile, 'collector.lua')
+pcall(dofile, 'builder.lua')
 <<<<<<< Updated upstream
 
 function init()
