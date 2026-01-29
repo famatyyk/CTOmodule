@@ -222,8 +222,8 @@ FormPanel < Panel
   
   TextEdit
     id: nameInput
-    anchors.top: prev.top
-    anchors.left: prev.right
+    anchors.top: nameLabel.top
+    anchors.left: nameLabel.right
     anchors.right: parent.right
     margin-left: 10
     

@@ -171,7 +171,7 @@ function toggle()
   if not win then
     win = g_ui.loadUI('main.otui')
   end
-  win:setVisible(!win:isVisible())  -- Wrong operator in Lua
+  win:setVisible(!win:isVisible())  -- Wrong: ! is not Lua (should be 'not')
 end
 ```
 
