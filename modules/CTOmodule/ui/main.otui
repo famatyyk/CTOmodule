@@ -1,19 +1,12 @@
-Label text: Task Editor v0.9
-Label id: taskEditorStatus text: "" visible: false color: yellow
+MainWindow
+  id: ctoWindow
+  !text: tr('CTO Module')
+  size: 420 700
 
-ListView id: taskListView
-  onDoubleClick: g_lua.call('CTOmodule.taskEditor.loadToEditor', item:getText())
+  Label
+    id: statusLabel
+    text: CTO Module v0.9
 
-TextEdit id: taskIdField    placeholder: Task ID
-TextEdit id: intervalField  placeholder: Interval (ms)
-TextEdit id: priorityField  placeholder: Priority
-CheckBox id: enabledCheck   text: Enabled
-TextEdit id: actionField    placeholder: Action name
-
-Button text: Save
-  onClick: g_lua.call('CTOmodule.taskEditor.saveFromEditor')
-
-<<<<<<< Updated upstream
   Label
     id: intervalLabel
     text: Interval (ms):
@@ -548,7 +541,3 @@ Button text: Save
     margin-right: 12
     margin-bottom: 12
     text: ""
-=======
-Button text: Apply to Runtime
-  onClick: g_ui.runAction('task_editor_ui_apply')
->>>>>>> Stashed changes
