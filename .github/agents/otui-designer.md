@@ -25,6 +25,8 @@ You are an OTUI designer specializing in creating and modifying OTClient user in
 
 ## OTUI Syntax Overview
 
+**Important:** OTUI files do not support comments. All documentation should be in separate files or in corresponding Lua code.
+
 ### Basic Widget Definition
 ```
 WidgetType < ParentType
@@ -100,7 +102,6 @@ MainWindow < Window
   text: CTOmodule
   @onEscape: self:destroy()
   
-  // Header section
   Panel
     id: headerPanel
     height: 30
@@ -115,7 +116,6 @@ MainWindow < Window
       anchors.centerIn: parent
       color: #ffffff
   
-  // Content section
   Panel
     id: contentPanel
     anchors.top: headerPanel.bottom
@@ -124,7 +124,6 @@ MainWindow < Window
     anchors.right: parent.right
     margin: 5
     
-  // Footer section with buttons
   Panel
     id: footerPanel
     height: 35
@@ -294,16 +293,22 @@ MainWindow < Window
 
 ## Bad OTUI Example
 ```
-// Bad: Poor structure, missing properties
 Window
-  // No id
-  // No size
   Button
-    text: Click  // No positioning
-    onClick: doSomething()  // Wrong event syntax (missing @)
+    text: Click
+    onClick: doSomething()
   Label
-    anchors.top: someId  // Undefined reference
+    anchors.top: someId
 ```
+
+**Problems with the above:**
+- Window has no `id` or `size` properties
+- Button has no positioning (missing anchors)
+- Event handler `onClick` missing `@` prefix (should be `@onClick`)
+- Label references undefined widget `someId`
+- No proper hierarchy or structure
+
+**Note:** OTUI files do not support comments. Document structure and reasoning in separate documentation files.
 
 ## Workflow
 1. Understand UI requirements
