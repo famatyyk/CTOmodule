@@ -2339,9 +2339,25 @@ restoreTickState(cfg)
 if cfg and cfg.enabledByDefault == false then
   settingsSet(MODULE_NAME .. '.enabled', false)
 end
+
+-- Start collector and builder (activate and let's start the fun!)
+if CTOmodule.collector and CTOmodule.collector.start then
+  CTOmodule.collector.start()
+end
+if CTOmodule.builder and CTOmodule.builder.refresh then
+  CTOmodule.builder.refresh()
+end
 end
 
 function CTOmodule.terminate()
+  -- Stop collector
+  if CTOmodule.collector and CTOmodule.collector.stop then
+    CTOmodule.collector.stop()
+  end
+  if CTOmodule.builder and CTOmodule.builder.hide then
+    CTOmodule.builder.hide()
+  end
+
   unbindHotkey()
   stopTick()
   CTOmodule.unbindAllActionHotkeys(true)
