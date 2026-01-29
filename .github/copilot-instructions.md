@@ -196,9 +196,9 @@ MainWindow < Window
 - Use existing widget patterns from `ui/main.otui`
 - Anchor widgets properly using OTClient's anchor system
 - IDs must be unique within their parent widget
-- Use `@onEvent` syntax for event handlers
-- Event handlers call Lua functions: `onClick: g_lua.call('CTOmodule.functionName', args)`
-
+- For widget events, use handlers like `onClick:` / `onDoubleClick:` (without `@`)
+- For key handlers on windows, use `@onEscape` / `@onEnter` (as in `MainWindow`)
+- Event handlers typically call Lua functions, e.g. `onClick: g_lua.call('CTOmodule.functionName', args)`
 #### Common Anchor Patterns:
 ```otui
 -- Anchor to parent
