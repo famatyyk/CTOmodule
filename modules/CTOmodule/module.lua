@@ -2,18 +2,6 @@
 
 CTOmodule = CTOmodule or {}
 
-CTOmodule.taskEditor = {
-  store = {},
-  upsert = function(taskId, data, force)
-    if not force and CTOmodule.taskEditor.store[taskId] then
-      perror("TaskEditor: Task ID already exists: " .. taskId)
-      return false
-    end
-    CTOmodule.taskEditor.store[taskId] = data
-    return true
-  end
-}
-
 -- Global fallback for getRootWidgetSafe (lexical ordering / upvalue resolution can differ across blocks).
 if type(getRootWidgetSafe) ~= 'function' then
   function getRootWidgetSafe()

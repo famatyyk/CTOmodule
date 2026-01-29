@@ -5,41 +5,8 @@ MainWindow
 
   Label
     id: statusLabel
-    text: Task Editor v0.9
+    text: CTO Module v0.9
 
-  Label
-    id: taskEditorStatus
-    text: ""
-    visible: false
-    color: yellow
-
-  ListView
-    id: taskListView
-    onDoubleClick: g_lua.call('CTOmodule.taskEditor.loadToEditor', item:getText())
-
-  TextEdit
-    id: taskIdField
-    placeholder: Task ID
-
-  TextEdit
-    id: intervalField
-    placeholder: Interval (ms)
-
-  TextEdit
-    id: priorityField
-    placeholder: Priority
-
-  CheckBox
-    id: enabledCheck
-    text: Enabled
-
-  TextEdit
-    id: actionField
-    placeholder: Action name
-
-  Button
-    text: Save
-    onClick: g_lua.call('CTOmodule.taskEditor.saveFromEditor')
   Label
     id: intervalLabel
     text: Interval (ms):
