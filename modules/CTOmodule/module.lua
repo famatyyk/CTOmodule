@@ -2344,9 +2344,8 @@ end
 if CTOmodule.collector and CTOmodule.collector.start then
   CTOmodule.collector.start()
 end
-if CTOmodule.builder and CTOmodule.builder.refresh then
-  CTOmodule.builder.refresh()
-end
+-- Note: builder.refresh() not called here as collector data may not exist yet
+-- Users can call CTOmodule.builder.refresh() manually when needed
 end
 
 function CTOmodule.terminate()
