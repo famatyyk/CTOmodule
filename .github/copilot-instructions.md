@@ -131,7 +131,7 @@ CTOmodule/
 ## Important Warnings
 
 1. **No Build System**: This is a Lua module, no compilation needed
-2. **Version Conflicts**: Handle merge conflicts carefully (note the conflict markers in code)
+2. **Merge Conflicts**: Always resolve merge conflicts completely before committing - do not leave conflict markers in code
 3. **Global Scope**: Avoid polluting global namespace - use module tables
 4. **OTClient Specific**: Code only runs within OTClient environment, not standalone Lua
 
