@@ -1,9 +1,11 @@
 -- init.lua (fixed paths for local folder)
 
 dofile('module.lua')
+copilot/fix-issue-to-make-it-work
 pcall(dofile, 'collector.lua')
 pcall(dofile, 'builder.lua')
-<<<<<<< Updated upstream
+Updated upstream
+main
 
 function init()
   if CTOmodule and CTOmodule.init then
@@ -16,8 +18,3 @@ function terminate()
     CTOmodule.terminate()
   end
 end
-=======
-pcall(dofile, 'patches/v0_9_1_apply.lua')
-pcall(dofile, 'patches/v0_9_2_editor_apply_ui.lua')
-pcall(dofile, 'patches/v0_9_3_editor_ui_edit.lua')
->>>>>>> Stashed changes
